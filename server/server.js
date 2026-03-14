@@ -11,21 +11,35 @@ const server = app.listen(3001, () => {
 
 const wss = new WebSocketServer({ server });
 
-let clients = [];
+const rooms = {};
 
 wss.on("connection", (ws) => {
-  clients.push(ws);
-
   ws.on("message", (message) => {
-    // broadcast to all other clients
+    const data = JSON.parse(message);
+
+    if (data.type === "join") {
+      ws.room = data.room;
+
+      if (!rooms[data.room]) {
+        rooms[data.room] = [];
+      }
+
+      rooms[data.room].push(ws);
+      return;
+    }
+
+    const clients = rooms[ws.room] || [];
+
     clients.forEach((client) => {
       if (client !== ws && client.readyState === 1) {
-        client.send(message.toString());
+        client.send(JSON.stringify(data));
       }
     });
   });
 
   ws.on("close", () => {
-    clients = clients.filter((c) => c !== ws);
+    if (ws.room && rooms[ws.room]) {
+      rooms[ws.room] = rooms[ws.room].filter((c) => c !== ws);
+    }
   });
 });
