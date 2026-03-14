@@ -1,13 +1,8 @@
 import { useParams } from "react-router-dom";
-import Canvas from "./Canvas";
+import Canvas from "./components/Canvas";
 
 export default function Board() {
-  const { id } = useParams();
+  const { boardId } = useParams();
 
-  return (
-    <div>
-      <h2>Board: {id}</h2>
-      <Canvas boardId={id} />
-    </div>
-  );
+  return <Canvas boardId={boardId} />;
 }
