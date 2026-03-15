@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useRef, useEffect } from "react";
 
 export default function useSocket(boardId, onMessage) {
   const socketRef = useRef(null);
@@ -7,12 +7,7 @@ export default function useSocket(boardId, onMessage) {
     socketRef.current = new WebSocket("ws://localhost:3001");
 
     socketRef.current.onopen = () => {
-      socketRef.current.send(
-        JSON.stringify({
-          type: "join",
-          room: boardId,
-        }),
-      );
+      socketRef.current.send(JSON.stringify({ type: "join", room: boardId }));
     };
 
     socketRef.current.onmessage = (event) => {
