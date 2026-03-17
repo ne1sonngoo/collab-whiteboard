@@ -21,8 +21,7 @@ export default function Canvas({ boardId }) {
     dragOffset
   } = useNotes(socketRef);
 
-  const { handleMouseMove: drawMouseMove, drawRemote } =
-    useDrawing(canvasRef, socketRef);
+  const { handleMouseMove: drawMouseMove, drawRemote, color, setColor, size, setSize} = useDrawing(canvasRef, socketRef);
 
   function handleSocketMessage(data) {
     if (data.type === "cursor_move") {
@@ -143,18 +142,31 @@ export default function Canvas({ boardId }) {
         marginTop: 40
       }}
     >
-      <h2>Collaborative Whiteboard</h2>
-
       <div style={{ marginBottom: 10 }}>
         <button onClick={createNote}>Add Note</button>
-        <button
-          onClick={clearBoard}
-          style={{ marginLeft: 10 }}
-        >
+
+        <button onClick={clearBoard} style={{ marginLeft: 10 }}>
           Clear Board
         </button>
-      </div>
 
+        {/* COLOR PICKER */}
+        <input
+          type="color"
+          value={color}
+          onChange={(e) => setColor(e.target.value)}
+          style={{ marginLeft: 10, verticalAlign: "middle" }}
+        />
+
+        {/* BRUSH SIZE */}
+        <input
+          type="range"
+          min="1"
+          max="10"
+          value={size}
+          onChange={(e) => setSize(Number(e.target.value))}
+          style={{ marginLeft: 10, verticalAlign: "middle" }}
+        />
+      </div>
       <div
         style={{
           width: "95vw",
