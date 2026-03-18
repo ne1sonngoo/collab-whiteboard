@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 export default function useDrawing(canvasRef, socketRef) {
   const prevPoint = useRef(null);
 
+  const [tool, setTool] = useState("pen");
   const [color, setColor] = useState("#000000");
   const [size, setSize] = useState(2);
 
@@ -22,18 +23,31 @@ export default function useDrawing(canvasRef, socketRef) {
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
 
-    const ctx = canvasRef.current.getContext("2d");
-
-    ctx.strokeStyle = color;
-    ctx.lineWidth = size;
-    ctx.lineCap = "round";
-
     if (prevPoint.current) {
+      const ctx = canvasRef.current.getContext("2d");
+
+      // tool behavior FIRST
+      if (tool === "eraser") {
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.lineWidth = size * 3;
+      } else {
+        ctx.globalCompositeOperation = "source-over";
+        ctx.strokeStyle = color;
+        ctx.lineWidth = size;
+      }
+
+      ctx.lineCap = "round";
+
+      // draw order
       ctx.beginPath();
       ctx.moveTo(prevPoint.current.x, prevPoint.current.y);
       ctx.lineTo(x, y);
       ctx.stroke();
 
+      // Reset AFTER drawing
+      ctx.globalCompositeOperation = "source-over";
+
+      // Send to others
       if (
         socketRef.current &&
         socketRef.current.readyState === WebSocket.OPEN
@@ -47,6 +61,7 @@ export default function useDrawing(canvasRef, socketRef) {
             y1: y,
             color,
             size,
+            tool,
           }),
         );
       }
@@ -60,14 +75,26 @@ export default function useDrawing(canvasRef, socketRef) {
 
     const ctx = canvasRef.current.getContext("2d");
 
-    ctx.strokeStyle = data.color || "#000";
-    ctx.lineWidth = data.size || 2;
+    // tool behavior
+    if (data.tool === "eraser") {
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.lineWidth = (data.size || 2) * 3;
+    } else {
+      ctx.globalCompositeOperation = "source-over";
+      ctx.strokeStyle = data.color || "#000";
+      ctx.lineWidth = data.size || 2;
+    }
+
     ctx.lineCap = "round";
 
+    // draw order
     ctx.beginPath();
     ctx.moveTo(data.x0, data.y0);
     ctx.lineTo(data.x1, data.y1);
     ctx.stroke();
+
+    // Reset
+    ctx.globalCompositeOperation = "source-over";
   };
 
   return {
@@ -77,5 +104,7 @@ export default function useDrawing(canvasRef, socketRef) {
     setColor,
     size,
     setSize,
+    tool,
+    setTool,
   };
 }

@@ -21,7 +21,16 @@ export default function Canvas({ boardId }) {
     dragOffset
   } = useNotes(socketRef);
 
-  const { handleMouseMove: drawMouseMove, drawRemote, color, setColor, size, setSize} = useDrawing(canvasRef, socketRef);
+  const {
+    handleMouseMove: drawMouseMove,
+    drawRemote,
+    color,
+    setColor,
+    size,
+    setSize,
+    tool,
+    setTool
+  } = useDrawing(canvasRef, socketRef);
 
   function handleSocketMessage(data) {
     if (data.type === "cursor_move") {
@@ -148,7 +157,25 @@ export default function Canvas({ boardId }) {
         <button onClick={clearBoard} style={{ marginLeft: 10 }}>
           Clear Board
         </button>
+        <button
+          onClick={() => setTool("pen")}
+          style={{
+            marginLeft: 10,
+            background: tool === "pen" ? "#ddd" : "white"
+          }}
+        >
+          Pen
+        </button>
 
+        <button
+          onClick={() => setTool("eraser")}
+          style={{
+            marginLeft: 5,
+            background: tool === "eraser" ? "#ddd" : "white"
+          }}
+        >
+          Eraser
+        </button>
         {/* COLOR PICKER */}
         <input
           type="color"
