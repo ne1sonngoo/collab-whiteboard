@@ -9,29 +9,7 @@ export default function Canvas({ boardId }) {
 
   const { cursors, updateCursor } = useCursor();
 
-  const socketRef = useSocket(boardId, handleSocketMessage);
-
-  const {
-    notes,
-    setNotes,
-    createNote,
-    startDragging,
-    stopDragging,
-    draggingNote,
-    dragOffset
-  } = useNotes(socketRef);
-
-  const {
-    handleMouseMove: drawMouseMove,
-    drawRemote,
-    color,
-    setColor,
-    size,
-    setSize,
-    tool,
-    setTool
-  } = useDrawing(canvasRef, socketRef);
-
+  // define handler first so it's stable and can be used in hooks that need it (like useNotes)
   function handleSocketMessage(data) {
     if (data.type === "cursor_move") {
       updateCursor(data.userId, data.x, data.y);
@@ -68,6 +46,30 @@ export default function Canvas({ boardId }) {
       setNotes([]);
     }
   }
+
+  const socketRef = useSocket(boardId, handleSocketMessage);
+
+  // ✅ FIX: destructure EVERYTHING you actually use
+  const {
+    notes,
+    setNotes,
+    createNote,
+    startDragging,
+    stopDragging,
+    draggingNote,
+    dragOffset
+  } = useNotes(socketRef);
+
+  const {
+    handleMouseMove: drawMouseMove,
+    drawRemote,
+    color,
+    setColor,
+    size,
+    setSize,
+    tool,
+    setTool
+  } = useDrawing(canvasRef, socketRef);
 
   const clearBoard = () => {
     if (!canvasRef.current) return;
@@ -108,18 +110,10 @@ export default function Canvas({ boardId }) {
 
     if (draggingNote.current) {
       const id = draggingNote.current;
-
       const offset = dragOffset.current;
 
       const newX = x - offset.x;
       const newY = y - offset.y;
-
-      const el = document.getElementById(`note-${id}`);
-
-      if (el) {
-        el.style.transform = `translate(${newX}px, ${newY}px)`;
-      }
-
       return;
     }
 
@@ -152,11 +146,20 @@ export default function Canvas({ boardId }) {
       }}
     >
       <div style={{ marginBottom: 10 }}>
-        <button onClick={createNote}>Add Note</button>
+        {/* DEBUG BUTTON */}
+        <button
+          onClick={() => {
+            console.log("Add Note clicked");
+            createNote();
+          }}
+        >
+          Add Note
+        </button>
 
         <button onClick={clearBoard} style={{ marginLeft: 10 }}>
           Clear Board
         </button>
+
         <button
           onClick={() => setTool("pen")}
           style={{
@@ -176,24 +179,24 @@ export default function Canvas({ boardId }) {
         >
           Eraser
         </button>
-        {/* COLOR PICKER */}
+
         <input
           type="color"
           value={color}
           onChange={(e) => setColor(e.target.value)}
-          style={{ marginLeft: 10, verticalAlign: "middle" }}
+          style={{ marginLeft: 10 }}
         />
 
-        {/* BRUSH SIZE */}
         <input
           type="range"
           min="1"
           max="10"
           value={size}
           onChange={(e) => setSize(Number(e.target.value))}
-          style={{ marginLeft: 10, verticalAlign: "middle" }}
+          style={{ marginLeft: 10 }}
         />
       </div>
+
       <div
         style={{
           width: "95vw",
@@ -204,6 +207,7 @@ export default function Canvas({ boardId }) {
           overflow: "hidden"
         }}
       >
+        {/* CANVAS (background layer) */}
         <canvas
           ref={canvasRef}
           width={1400}
@@ -212,10 +216,15 @@ export default function Canvas({ boardId }) {
           onMouseUp={handleMouseUp}
           style={{
             width: "100%",
-            height: "100%"
+            height: "100%",
+            position: "absolute",
+            top: 0,
+            left: 0,
+            zIndex: 0
           }}
         />
 
+        {/* CURSORS */}
         {Object.entries(cursors).map(([id, cursor]) => (
           <div
             key={id}
@@ -226,36 +235,35 @@ export default function Canvas({ boardId }) {
               height: 10,
               background: "red",
               borderRadius: "50%",
-              pointerEvents: "none"
+              pointerEvents: "none",
+              zIndex: 5
             }}
           />
         ))}
 
+        {/* NOTES (on top) */}
         {notes.map((note) => (
           <div
-            id={`note-${note.id}`}
             key={note.id}
+            id={`note-${note.id}`}
             onMouseDown={(e) => {
               e.stopPropagation();
 
               const rect =
                 canvasRef.current.getBoundingClientRect();
 
-              const scaleX =
-                canvasRef.current.width / rect.width;
-              const scaleY =
-                canvasRef.current.height / rect.height;
+              const scaleX = canvasRef.current.width / rect.width;
+              const scaleY = canvasRef.current.height / rect.height;
 
-              const x =
-                (e.clientX - rect.left) * scaleX;
-              const y =
-                (e.clientY - rect.top) * scaleY;
+              const x = (e.clientX - rect.left) * scaleX;
+              const y = (e.clientY - rect.top) * scaleY;
 
               startDragging(note, x, y);
             }}
             style={{
               position: "absolute",
-              transform: `translate(${note.x}px, ${note.y}px)`,
+              left: note.x,   // ✅ IMPORTANT (not transform)
+              top: note.y,    // ✅ IMPORTANT
               background: "yellow",
               padding: "10px",
               border: "1px solid black",
