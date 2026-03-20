@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useEffect } from "react";
 import useSocket from "../hooks/useSocket";
 import useDrawing from "../hooks/useDrawing";
 import useNotes from "../hooks/useNotes";
@@ -6,7 +6,7 @@ import useCursor from "../hooks/useCursor";
 
 export default function Canvas({ boardId }) {
   const canvasRef = useRef(null);
-
+  const livePositions = useRef(new Map());
   const { cursors, updateCursor } = useCursor();
 
   function handleSocketMessage(data) {
@@ -62,8 +62,9 @@ export default function Canvas({ boardId }) {
     startResizing,
     resizeNote,
     stopResizing,
-    resizingNote
-  } = useNotes(socketRef);
+    resizingNote,
+    bringToFront,
+  } = useNotes(socketRef, livePositions);
 
   const {
     handleMouseMove: drawMouseMove,
@@ -75,6 +76,25 @@ export default function Canvas({ boardId }) {
     tool,
     setTool
   } = useDrawing(canvasRef, socketRef);
+
+  useEffect(() => {
+    let frame;
+
+    const update = () => {
+      frame = requestAnimationFrame(update);
+
+      setNotes((prev) =>
+        prev.map((n) => {
+          const live = livePositions.current.get(n.id);
+          return live ? { ...n, ...live } : n;
+        })
+      );
+    };
+
+    update();
+
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   const clearBoard = () => {
     if (!canvasRef.current) return;
@@ -99,26 +119,23 @@ export default function Canvas({ boardId }) {
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
 
-    // ✅ smooth resize
+    // smooth resize
     if (resizingNote?.current) {
       resizeNote(x, y);
       return;
     }
 
-    // ✅ smooth drag
+    // smooth drag
     if (draggingNote?.current) {
       const offset = dragOffset.current;
 
       const newX = x - offset.x;
       const newY = y - offset.y;
 
-      setNotes((prev) =>
-        prev.map((n) =>
-          n.id === draggingNote.current
-            ? { ...n, x: newX, y: newY }
-            : n
-        )
-      );
+      livePositions.current.set(draggingNote.current, {
+        x: newX,
+        y: newY,
+      });
 
       return;
     }
@@ -214,8 +231,8 @@ export default function Canvas({ boardId }) {
           ref={canvasRef}
           width={1400}
           height={800}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
+          onPointerMove={handleMouseMove}
+          onPointerUp={handleMouseUp}
           style={{
             width: "100%",
             height: "100%",
@@ -247,8 +264,10 @@ export default function Canvas({ boardId }) {
         {notes.map((note) => (
           <div
             key={note.id}
-            onMouseDown={(e) => {
+            onPointerDown={(e) => {
               e.stopPropagation();
+              bringToFront(note.id);
+              e.currentTarget.setPointerCapture(e.pointerId);
 
               const rect =
                 canvasRef.current.getBoundingClientRect();
@@ -267,8 +286,8 @@ export default function Canvas({ boardId }) {
             }}
             style={{
               position: "absolute",
-              left: note.x,
-              top: note.y,
+              transform: `translate(${note.x}px, ${note.y}px)`,
+              willChange: "transform",
               width: note.width || 120,
               height: note.height || 60,
               background: "yellow",
@@ -281,7 +300,7 @@ export default function Canvas({ boardId }) {
                 draggingNote.current === note.id
                   ? "grabbing"
                   : "grab",
-              zIndex: 10,
+              zIndex: note.zIndex || 1,
               boxSizing: "border-box"
             }}
           >
@@ -316,8 +335,9 @@ export default function Canvas({ boardId }) {
 
             {/* RESIZE HANDLE (big hitbox) */}
             <div
-              onMouseDown={(e) => {
+              onPointerDown={(e) => {
                 e.stopPropagation();
+                e.currentTarget.setPointerCapture(e.pointerId);
 
                 const rect =
                   canvasRef.current.getBoundingClientRect();

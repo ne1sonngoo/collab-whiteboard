@@ -1,15 +1,15 @@
 import { useRef, useState } from "react";
 
-export default function useNotes(socketRef) {
+export default function useNotes(socketRef, livePositions) {
   const [notes, setNotes] = useState([]);
 
   const draggingNote = useRef(null);
   const dragOffset = useRef({ x: 0, y: 0 });
   const resizingNote = useRef(null);
   const resizeStart = useRef({ x: 0, y: 0, w: 0, h: 0 });
+
   const startDragging = (note, cursorX, cursorY) => {
     draggingNote.current = note.id;
-
     dragOffset.current = {
       x: cursorX - note.x,
       y: cursorY - note.y,
@@ -71,6 +71,8 @@ export default function useNotes(socketRef) {
 
     const id = draggingNote.current;
 
+    livePositions.current.delete(id);
+
     setNotes((prev) =>
       prev.map((n) => (n.id === id ? { ...n, x: finalX, y: finalY } : n)),
     );
@@ -89,12 +91,22 @@ export default function useNotes(socketRef) {
     draggingNote.current = null;
   };
 
+  const bringToFront = (id) => {
+    const topZ = Date.now();
+    setNotes((prev) =>
+      prev.map((note) => (note.id === id ? { ...note, zIndex: topZ } : note)),
+    );
+  };
+
   const createNote = () => {
     const newNote = {
-      id: Date.now(),
-      text: "New Note",
-      x: 100,
-      y: 100,
+      id: crypto.randomUUID(),
+      text: "New note",
+      x: 200,
+      y: 200,
+      width: 120,
+      height: 60,
+      zIndex: Date.now(),
     };
 
     console.log("Creating note:", newNote);
@@ -123,5 +135,6 @@ export default function useNotes(socketRef) {
     resizeNote,
     stopResizing,
     resizingNote,
+    bringToFront,
   };
 }
