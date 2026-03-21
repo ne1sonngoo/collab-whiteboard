@@ -1,56 +1,72 @@
-import { useRef, useEffect } from "react";
+import { useRef } from "react";
 import useSocket from "../hooks/useSocket";
 import useDrawing from "../hooks/useDrawing";
 import useNotes from "../hooks/useNotes";
 import useCursor from "../hooks/useCursor";
 
 export default function Canvas({ boardId }) {
+  // =========================
+  // REFS & LOCAL STATE
+  // =========================
   const canvasRef = useRef(null);
   const livePositions = useRef(new Map());
+
   const { cursors, updateCursor } = useCursor();
 
+  // =========================
+  // SOCKET HANDLING
+  // =========================
   function handleSocketMessage(data) {
-    if (data.type === "cursor_move") {
-      updateCursor(data.userId, data.x, data.y);
-    }
+    switch (data.type) {
+      case "cursor_move":
+        updateCursor(data.userId, data.x, data.y);
+        break;
 
-    if (data.type === "draw") {
-      drawRemote(canvasRef, data);
-    }
+      case "draw":
+        drawRemote(canvasRef, data);
+        break;
 
-    if (data.type === "note_create") {
-      setNotes((prev) => [...prev, data.note]);
-    }
+      case "note_create":
+        setNotes((prev) => [...prev, data.note]);
+        break;
 
-    if (data.type === "note_move") {
-      setNotes((prev) =>
-        prev.map((note) =>
-          note.id === data.id
-            ? { ...note, x: data.x, y: data.y }
-            : note
-        )
-      );
-    }
+      case "note_move":
+        setNotes((prev) =>
+          prev.map((note) =>
+            note.id === data.id
+              ? { ...note, x: data.x, y: data.y }
+              : note
+          )
+        );
+        break;
 
-    if (data.type === "note_resize") {
-      setNotes((prev) =>
-        prev.map((note) =>
-          note.id === data.id
-            ? { ...note, width: data.width, height: data.height }
-            : note
-        )
-      );
-    }
+      case "note_resize":
+        setNotes((prev) =>
+          prev.map((note) =>
+            note.id === data.id
+              ? { ...note, width: data.width, height: data.height }
+              : note
+          )
+        );
+        break;
 
-    if (data.type === "clear_board") {
-      const ctx = canvasRef.current.getContext("2d");
-      ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-      setNotes([]);
+      case "clear_board":
+        if (!canvasRef.current) return;
+        const ctx = canvasRef.current.getContext("2d");
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+        setNotes([]);
+        break;
+
+      default:
+        break;
     }
   }
 
   const socketRef = useSocket(boardId, handleSocketMessage);
 
+  // =========================
+  // NOTES SYSTEM
+  // =========================
   const {
     notes,
     setNotes,
@@ -66,6 +82,9 @@ export default function Canvas({ boardId }) {
     bringToFront,
   } = useNotes(socketRef, livePositions);
 
+  // =========================
+  // DRAWING SYSTEM
+  // =========================
   const {
     handleMouseMove: drawMouseMove,
     drawRemote,
@@ -74,28 +93,12 @@ export default function Canvas({ boardId }) {
     size,
     setSize,
     tool,
-    setTool
+    setTool,
   } = useDrawing(canvasRef, socketRef);
 
-  useEffect(() => {
-    let frame;
-
-    const update = () => {
-      frame = requestAnimationFrame(update);
-
-      setNotes((prev) =>
-        prev.map((n) => {
-          const live = livePositions.current.get(n.id);
-          return live ? { ...n, ...live } : n;
-        })
-      );
-    };
-
-    update();
-
-    return () => cancelAnimationFrame(frame);
-  }, []);
-
+  // =========================
+  // UI ACTIONS
+  // =========================
   const clearBoard = () => {
     if (!canvasRef.current) return;
 
@@ -109,49 +112,51 @@ export default function Canvas({ boardId }) {
     }
   };
 
-  const handleMouseMove = (e) => {
-    if (!canvasRef.current) return;
-
+  // =========================
+  // POINTER HANDLERS
+  // =========================
+  const getCanvasCoords = (e) => {
     const rect = canvasRef.current.getBoundingClientRect();
     const scaleX = canvasRef.current.width / rect.width;
     const scaleY = canvasRef.current.height / rect.height;
 
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
+    return {
+      x: (e.clientX - rect.left) * scaleX,
+      y: (e.clientY - rect.top) * scaleY,
+    };
+  };
 
-    // smooth resize
+  const handlePointerMove = (e) => {
+    if (!canvasRef.current) return;
+
+    const { x, y } = getCanvasCoords(e);
+
+    // resizing
     if (resizingNote?.current) {
       resizeNote(x, y);
       return;
     }
 
-    // smooth drag
+    // dragging (FAST PATH - no React)
     if (draggingNote?.current) {
       const offset = dragOffset.current;
 
-      const newX = x - offset.x;
-      const newY = y - offset.y;
-
       livePositions.current.set(draggingNote.current, {
-        x: newX,
-        y: newY,
+        x: x - offset.x,
+        y: y - offset.y,
       });
 
       return;
     }
 
+    // drawing
     drawMouseMove(e);
   };
 
-  const handleMouseUp = (e) => {
+  const handlePointerUp = (e) => {
     if (!canvasRef.current) return;
 
-    const rect = canvasRef.current.getBoundingClientRect();
-    const scaleX = canvasRef.current.width / rect.width;
-    const scaleY = canvasRef.current.height / rect.height;
-
-    const x = (e.clientX - rect.left) * scaleX;
-    const y = (e.clientY - rect.top) * scaleY;
+    const { x, y } = getCanvasCoords(e);
 
     if (resizingNote?.current) {
       stopResizing();
@@ -164,59 +169,60 @@ export default function Canvas({ boardId }) {
     }
   };
 
+  // =========================
+  // STYLES
+  // =========================
+  const toolbarStyle = {
+    position: "fixed",
+    top: 20,
+    left: "50%",
+    transform: "translateX(-50%)",
+    display: "flex",
+    gap: 12,
+    padding: "10px 16px",
+    borderRadius: 16,
+    background: "rgba(255,255,255,0.7)",
+    backdropFilter: "blur(10px)",
+    boxShadow: "0 8px 30px rgba(0,0,0,0.1)",
+    border: "1px solid rgba(255,255,255,0.3)",
+    zIndex: 1000,
+  };
+
+  // =========================
+  // RENDER
+  // =========================
   return (
     <div
       style={{
         display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        marginTop: 40
+        justifyContent: "center",
+        marginTop: 40,
       }}
     >
-      <div style={{ marginBottom: 10 }}>
-        <button onClick={createNote}>Add Note</button>
-
-        <button onClick={clearBoard} style={{ marginLeft: 10 }}>
-          Clear Board
-        </button>
-
-        <button
-          onClick={() => setTool("pen")}
-          style={{
-            marginLeft: 10,
-            background: tool === "pen" ? "#ddd" : "white"
-          }}
-        >
-          Pen
-        </button>
-
-        <button
-          onClick={() => setTool("eraser")}
-          style={{
-            marginLeft: 5,
-            background: tool === "eraser" ? "#ddd" : "white"
-          }}
-        >
-          Eraser
-        </button>
+      {/* FLOATING TOOLBAR */}
+      <div style={toolbarStyle}>
+        <button onClick={() => setTool("pen")}>✏️</button>
+        <button onClick={() => setTool("eraser")}>🧽</button>
 
         <input
           type="color"
           value={color}
           onChange={(e) => setColor(e.target.value)}
-          style={{ marginLeft: 10 }}
         />
 
         <input
           type="range"
           min="1"
-          max="10"
+          max="20"
           value={size}
           onChange={(e) => setSize(Number(e.target.value))}
-          style={{ marginLeft: 10 }}
         />
+
+        <button onClick={createNote}>📝</button>
+        <button onClick={clearBoard}>🗑️</button>
       </div>
 
+      {/* CANVAS CONTAINER */}
       <div
         style={{
           width: "95vw",
@@ -224,22 +230,23 @@ export default function Canvas({ boardId }) {
           border: "2px solid black",
           background: "white",
           position: "relative",
-          overflow: "hidden"
+          overflow: "hidden",
         }}
       >
+        {/* DRAWING CANVAS */}
         <canvas
           ref={canvasRef}
           width={1400}
           height={800}
-          onPointerMove={handleMouseMove}
-          onPointerUp={handleMouseUp}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
           style={{
             width: "100%",
             height: "100%",
             position: "absolute",
             top: 0,
             left: 0,
-            zIndex: 0
+            zIndex: 0,
           }}
         />
 
@@ -255,129 +262,99 @@ export default function Canvas({ boardId }) {
               background: "red",
               borderRadius: "50%",
               pointerEvents: "none",
-              zIndex: 5
+              zIndex: 5,
             }}
           />
         ))}
 
         {/* NOTES */}
-        {notes.map((note) => (
-          <div
-            key={note.id}
-            onPointerDown={(e) => {
-              e.stopPropagation();
-              bringToFront(note.id);
-              e.currentTarget.setPointerCapture(e.pointerId);
+        {notes.map((note) => {
+          const live = livePositions.current.get(note.id);
+          const x = live?.x ?? note.x;
+          const y = live?.y ?? note.y;
 
-              const rect =
-                canvasRef.current.getBoundingClientRect();
-
-              const scaleX =
-                canvasRef.current.width / rect.width;
-              const scaleY =
-                canvasRef.current.height / rect.height;
-
-              const x =
-                (e.clientX - rect.left) * scaleX;
-              const y =
-                (e.clientY - rect.top) * scaleY;
-
-              startDragging(note, x, y);
-            }}
-            style={{
-              position: "absolute",
-              transform: `translate(${note.x}px, ${note.y}px)`,
-              willChange: "transform",
-              width: note.width || 120,
-              height: note.height || 60,
-              background: "yellow",
-              padding: "10px",
-              border:
-                resizingNote.current === note.id
-                  ? "2px solid blue"
-                  : "1px solid black",
-              cursor:
-                draggingNote.current === note.id
-                  ? "grabbing"
-                  : "grab",
-              zIndex: note.zIndex || 1,
-              boxSizing: "border-box"
-            }}
-          >
-            {/* TEXT */}
+          return (
             <div
-              contentEditable
-              suppressContentEditableWarning
-              style={{
-                outline: "none",
-                width: "100%",
-                height: "100%",
-                overflow: "hidden",
-                pointerEvents:
-                  resizingNote.current === note.id
-                    ? "none"
-                    : "auto"
-              }}
-              onBlur={(e) => {
-                const newText = e.target.innerText;
-
-                setNotes((prev) =>
-                  prev.map((n) =>
-                    n.id === note.id
-                      ? { ...n, text: newText }
-                      : n
-                  )
-                );
-              }}
-            >
-              {note.text}
-            </div>
-
-            {/* RESIZE HANDLE (big hitbox) */}
-            <div
+              key={note.id}
               onPointerDown={(e) => {
                 e.stopPropagation();
+                bringToFront(note.id);
                 e.currentTarget.setPointerCapture(e.pointerId);
 
-                const rect =
-                  canvasRef.current.getBoundingClientRect();
-
-                const scaleX =
-                  canvasRef.current.width / rect.width;
-                const scaleY =
-                  canvasRef.current.height / rect.height;
-
-                const x =
-                  (e.clientX - rect.left) * scaleX;
-                const y =
-                  (e.clientY - rect.top) * scaleY;
-
-                startResizing(note, x, y);
+                const { x, y } = getCanvasCoords(e);
+                startDragging(note, x, y);
               }}
               style={{
                 position: "absolute",
-                width: 24,
-                height: 24,
-                right: -8,
-                bottom: -8,
-                cursor: "nwse-resize",
-                zIndex: 20
+                transform: `translate(${x}px, ${y}px)`,
+                width: note.width,
+                height: note.height,
+                background: "#fff8a6",
+                borderRadius: 12,
+                padding: 12,
+                boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
+                border: "1px solid rgba(0,0,0,0.1)",
+                cursor:
+                  draggingNote.current === note.id ? "grabbing" : "grab",
+                zIndex: note.zIndex || 1,
+                willChange: "transform",
               }}
             >
+              {/* NOTE TEXT */}
               <div
+                contentEditable
+                suppressContentEditableWarning
                 style={{
-                  width: 12,
-                  height: 12,
-                  background: "black",
-                  position: "absolute",
-                  right: 4,
-                  bottom: 4,
-                  borderRadius: 2
+                  outline: "none",
+                  width: "100%",
+                  height: "100%",
                 }}
-              />
+                onBlur={(e) => {
+                  const newText = e.target.innerText;
+
+                  setNotes((prev) =>
+                    prev.map((n) =>
+                      n.id === note.id ? { ...n, text: newText } : n
+                    )
+                  );
+                }}
+              >
+                {note.text}
+              </div>
+
+              {/* RESIZE HANDLE */}
+              <div
+                onPointerDown={(e) => {
+                  e.stopPropagation();
+                  e.currentTarget.setPointerCapture(e.pointerId);
+
+                  const { x, y } = getCanvasCoords(e);
+                  startResizing(note, x, y);
+                }}
+                style={{
+                  position: "absolute",
+                  width: 24,
+                  height: 24,
+                  right: -8,
+                  bottom: -8,
+                  cursor: "nwse-resize",
+                }}
+              >
+                <div
+                  style={{
+                    width: 12,
+                    height: 12,
+                    background: "black",
+                    position: "absolute",
+                    right: 4,
+                    bottom: 4,
+                    borderRadius: 2,
+                  }}
+                />
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
