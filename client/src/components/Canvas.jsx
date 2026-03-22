@@ -1,24 +1,21 @@
 import { useRef } from "react";
 import useSocket from "../hooks/useSocket";
 import useDrawing from "../hooks/useDrawing";
-import useNotes from "../hooks/useNotes";
 import useCursor from "../hooks/useCursor";
 
 import Toolbar from "../components/Toolbar";
-import NotesLayer from "../components/NotesLayer";
 
 export default function Canvas({ boardId }) {
   // =========================
   // REFS
   // =========================
   const canvasRef = useRef(null);
-  const livePositions = useRef(new Map());
 
   // =========================
   // CURSOR SYSTEM
   // =========================
   const { cursors, updateCursor } = useCursor();
-  
+
   // =========================
   // SOCKET HANDLER
   // =========================
@@ -32,35 +29,10 @@ export default function Canvas({ boardId }) {
         drawRemote(canvasRef, data);
         break;
 
-      case "note_create":
-        setNotes((prev) => [...prev, data.note]);
-        break;
-
-      case "note_move":
-        setNotes((prev) =>
-          prev.map((note) =>
-            note.id === data.id
-              ? { ...note, x: data.x, y: data.y }
-              : note
-          )
-        );
-        break;
-
-      case "note_resize":
-        setNotes((prev) =>
-          prev.map((note) =>
-            note.id === data.id
-              ? { ...note, width: data.width, height: data.height }
-              : note
-          )
-        );
-        break;
-
       case "clear_board":
         if (!canvasRef.current) return;
         const ctx = canvasRef.current.getContext("2d");
         ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-        setNotes([]);
         break;
 
       default:
@@ -69,24 +41,6 @@ export default function Canvas({ boardId }) {
   }
 
   const socketRef = useSocket(boardId, handleSocketMessage);
-
-  // =========================
-  // NOTES SYSTEM
-  // =========================
-  const {
-    notes,
-    setNotes,
-    createNote,
-    startDragging,
-    stopDragging,
-    draggingNote,
-    dragOffset,
-    startResizing,
-    resizeNote,
-    stopResizing,
-    resizingNote,
-    bringToFront,
-  } = useNotes(socketRef, livePositions);
 
   // =========================
   // DRAWING SYSTEM
@@ -110,8 +64,6 @@ export default function Canvas({ boardId }) {
 
     const ctx = canvasRef.current.getContext("2d");
     ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
-
-    setNotes([]);
 
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({ type: "clear_board" }));
@@ -140,9 +92,7 @@ export default function Canvas({ boardId }) {
 
     const { x, y } = getCanvasCoords(e);
 
-    // =========================
     // SEND CURSOR POSITION
-    // =========================
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({
@@ -153,42 +103,12 @@ export default function Canvas({ boardId }) {
       );
     }
 
-    // resize
-    if (resizingNote?.current) {
-      resizeNote(x, y);
-      return;
-    }
-
-    // drag (FAST PATH)
-    if (draggingNote?.current) {
-      const offset = dragOffset.current;
-
-      livePositions.current.set(draggingNote.current, {
-        x: x - offset.x,
-        y: y - offset.y,
-      });
-
-      return;
-    }
-
-    // draw
+    // DRAW
     drawMouseMove(e);
   };
 
-  const handlePointerUp = (e) => {
-    if (!canvasRef.current) return;
-
-    const { x, y } = getCanvasCoords(e);
-
-    if (resizingNote?.current) {
-      stopResizing();
-      return;
-    }
-
-    if (draggingNote?.current) {
-      const offset = dragOffset.current;
-      stopDragging(x - offset.x, y - offset.y);
-    }
+  const handlePointerUp = () => {
+    // nothing needed – drawing already handles it
   };
 
   // scale cursor positions to screen coords for rendering
@@ -205,7 +125,7 @@ export default function Canvas({ boardId }) {
       y: y * scaleY,
     };
   };
-  
+
   // =========================
   // RENDER
   // =========================
@@ -225,7 +145,6 @@ export default function Canvas({ boardId }) {
         setColor={setColor}
         size={size}
         setSize={setSize}
-        createNote={createNote}
         clearBoard={clearBoard}
       />
 
@@ -300,19 +219,6 @@ export default function Canvas({ boardId }) {
             </div>
           );
         })}
-
-        {/* NOTES LAYER */}
-        <NotesLayer
-          notes={notes}
-          livePositions={livePositions}
-          draggingNote={draggingNote}
-          resizingNote={resizingNote}
-          bringToFront={bringToFront}
-          startDragging={startDragging}
-          startResizing={startResizing}
-          setNotes={setNotes}
-          getCanvasCoords={getCanvasCoords}
-        />
       </div>
     </div>
   );

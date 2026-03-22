@@ -5,7 +5,6 @@ export default function Toolbar({
   setColor,
   size,
   setSize,
-  createNote,
   clearBoard,
 }) {
   return (
@@ -27,7 +26,6 @@ export default function Toolbar({
         onChange={(e) => setSize(Number(e.target.value))}
       />
 
-      <button onClick={createNote}>📝</button>
       <button onClick={clearBoard}>🗑️</button>
     </div>
   );
