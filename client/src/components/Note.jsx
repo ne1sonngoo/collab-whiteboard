@@ -276,7 +276,7 @@ export default function Canvas({ boardId }) {
                 style={{
                   width: 12,
                   height: 12,
-                  background: "blue",
+                  background: cursor.color || "#3b82f6",
                   borderRadius: "50%",
                 }}
               />
