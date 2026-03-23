@@ -11,13 +11,11 @@ export default function Toolbar({
     <div style={toolbarStyle}>
       <button onClick={() => setTool("pen")}>✏️</button>
       <button onClick={() => setTool("eraser")}>🧽</button>
-
       <input
         type="color"
         value={color}
         onChange={(e) => setColor(e.target.value)}
       />
-
       <input
         type="range"
         min="1"
@@ -25,7 +23,6 @@ export default function Toolbar({
         value={size}
         onChange={(e) => setSize(Number(e.target.value))}
       />
-
       <button onClick={clearBoard}>🗑️</button>
     </div>
   );
