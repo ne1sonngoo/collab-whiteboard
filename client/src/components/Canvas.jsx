@@ -51,6 +51,15 @@ export default function Canvas({ boardId }) {
     }
   };
 
+  const handleSaveImage = () => {
+    if (!canvasRef.current) return;
+
+    const link = document.createElement('a');
+    link.download = `drawing-${boardId}.png`;
+    link.href = canvasRef.current.toDataURL();
+    link.click();
+  };
+
   const handlePointerMove = (e) => {
     if (!canvasRef.current) return;
     const { x, y } = getCanvasCoords(e, canvasRef.current);
@@ -77,6 +86,7 @@ export default function Canvas({ boardId }) {
         size={size}
         setSize={setSize}
         clearBoard={clearBoard}
+        saveImage={handleSaveImage}
       />
       <div style={canvasContainerStyle}>
         <canvas

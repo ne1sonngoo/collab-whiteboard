@@ -6,6 +6,7 @@ export default function Toolbar({
   size,
   setSize,
   clearBoard,
+  saveImage,
 }) {
   return (
     <div style={toolbarStyle}>
@@ -23,6 +24,7 @@ export default function Toolbar({
         value={size}
         onChange={(e) => setSize(Number(e.target.value))}
       />
+      <button onClick={saveImage}>📸</button>
       <button onClick={clearBoard}>🗑️</button>
     </div>
   );
