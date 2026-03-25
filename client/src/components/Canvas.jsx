@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import useSocket from "../hooks/useSocket";
 import useDrawing from "../hooks/useDrawing";
 import useCursor from "../hooks/useCursor";
@@ -21,6 +21,18 @@ export default function Canvas({ boardId }) {
     setTool,
   } = useDrawing(canvasRef, socketRef);
 
+  // Username handling
+  const [username, setUsername] = useState(() => {
+    const saved = localStorage.getItem("drawing_username");
+    if (saved) return saved;
+    return "User-" + Math.floor(Math.random() * 10000);
+  }); 
+
+  const updateUsername = (newName) => {
+    setUsername(newName);
+    localStorage.setItem("drawing_username", newName);
+    };
+
   // Helper to clear canvas
   const clearCanvas = () => {
     if (!canvasRef.current) return;
@@ -31,7 +43,7 @@ export default function Canvas({ boardId }) {
   function handleSocketMessage(data) {
     switch (data.type) {
       case "cursor_move":
-        updateCursor(data.userId, data.x, data.y);
+        updateCursor(data.userId, data.x, data.y, data.username);
         break;
       case "draw":
         drawRemote(canvasRef, data);
@@ -66,14 +78,13 @@ export default function Canvas({ boardId }) {
 
     // Send cursor position
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: "cursor_move", x, y }));
+      socketRef.current.send(JSON.stringify({ type: "cursor_move", x, y, username,}));
     }
 
     drawMouseMove(e);
   };
 
   const handlePointerUp = () => {
-    // Nothing needed – drawing already handles it
   };
 
   return (
@@ -87,6 +98,8 @@ export default function Canvas({ boardId }) {
         setSize={setSize}
         clearBoard={clearBoard}
         saveImage={handleSaveImage}
+        username={username}
+        setUsername={updateUsername}
       />
       <div style={canvasContainerStyle}>
         <canvas
@@ -108,7 +121,7 @@ export default function Canvas({ boardId }) {
               }}
             >
               <div style={{ ...cursorDotStyle, background: cursor.color }} />
-              <div style={cursorLabelStyle}>User</div>
+              <div style={cursorLabelStyle}>{cursor.username || "User"}</div>
             </div>
           );
         })}

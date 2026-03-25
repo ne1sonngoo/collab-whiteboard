@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 export default function Toolbar({
   tool,
   setTool,
@@ -7,11 +9,29 @@ export default function Toolbar({
   setSize,
   clearBoard,
   saveImage,
+  username,
+  setUsername,
 }) {
+  const [tempName, setTempName] = useState(username);
+
+  const handleNameSubmit = () => {
+    if (tempName.trim()) setUsername(tempName.trim());
+  };
+
   return (
     <div style={toolbarStyle}>
       <button onClick={() => setTool("pen")}>✏️</button>
       <button onClick={() => setTool("eraser")}>🧽</button>
+      <div style={{ display: "flex", gap: 4 }}>
+       <input
+         value={tempName}
+         onChange={(e) => setTempName(e.target.value)}
+         onKeyDown={(e) => e.key === "Enter" && handleNameSubmit()}
+         placeholder="Your name"
+         style={{ width: 100, padding: "4px 8px", borderRadius: 8 }}
+       />
+       <button onClick={handleNameSubmit}>✏️</button>
++     </div>
       <input
         type="color"
         value={color}
@@ -39,6 +59,7 @@ const toolbarStyle = {
   gap: 12,
   padding: "10px 16px",
   borderRadius: 16,
+  alignItems: "center",
   background: "rgba(255,255,255,0.7)",
   backdropFilter: "blur(10px)",
   boxShadow: "0 8px 30px rgba(0,0,0,0.1)",
