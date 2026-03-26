@@ -2,21 +2,31 @@ import { useRef, useEffect } from "react";
 
 export default function useSocket(boardId, onMessage) {
   const socketRef = useRef(null);
+  // Always hold the latest onMessage without recreating the socket
+  const onMessageRef = useRef(onMessage);
+  useEffect(() => {
+    onMessageRef.current = onMessage;
+  }, [onMessage]);
 
   useEffect(() => {
-    socketRef.current = new WebSocket("ws://localhost:3001");
+    const ws = new WebSocket("ws://localhost:3001");
+    socketRef.current = ws;
 
-    socketRef.current.onopen = () => {
-      socketRef.current.send(JSON.stringify({ type: "join", room: boardId }));
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: "join", room: boardId }));
     };
 
-    socketRef.current.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      onMessage(data);
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        onMessageRef.current(data); // always calls the latest handler
+      } catch (e) {
+        console.error("WS parse error", e);
+      }
     };
 
     return () => {
-      socketRef.current.close();
+      ws.close();
     };
   }, [boardId]);
 

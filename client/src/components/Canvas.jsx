@@ -2,7 +2,9 @@ import { useRef, useState, useEffect } from "react";
 import useSocket from "../hooks/useSocket";
 import useDrawing from "../hooks/useDrawing";
 import useCursor from "../hooks/useCursor";
+import useNotes from "../hooks/useNotes";
 import Toolbar from "../components/Toolbar";
+import StickyNote from "../components/StickyNote";
 import { getCanvasCoords, toScreenCoords } from "../utils/canvasUtils";
 
 export default function Canvas({ boardId }) {
@@ -26,7 +28,9 @@ export default function Canvas({ boardId }) {
     setTool,
   } = useDrawing(canvasRef, socketRef);
 
-  // Username handling
+  const { notes, createNote, moveNote, updateNoteText, deleteNote, applyRemoteNote } =
+    useNotes(socketRef);
+
   const [username, setUsername] = useState(() => {
     const saved = localStorage.getItem("drawing_username");
     if (saved) return saved;
@@ -38,12 +42,10 @@ export default function Canvas({ boardId }) {
     localStorage.setItem("drawing_username", newName);
   };
 
-  // Keyboard shortcuts: Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo
   useEffect(() => {
     const handleKeyDown = (e) => {
       const isMac = navigator.platform.toUpperCase().includes("MAC");
       const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
-
       if (ctrlOrCmd && e.key === "z" && !e.shiftKey) {
         e.preventDefault();
         undo();
@@ -55,7 +57,6 @@ export default function Canvas({ boardId }) {
         redo();
       }
     };
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [undo, redo]);
@@ -77,13 +78,17 @@ export default function Canvas({ boardId }) {
       case "clear_board":
         clearCanvas();
         break;
+      case "note_create":
+      case "note_move":
+      case "note_update":
+        applyRemoteNote(data);
+        break;
       default:
         break;
     }
   }
 
   const clearBoard = () => {
-    // Save current state so the clear itself is undoable
     saveSnapshot();
     clearCanvas();
     if (socketRef.current?.readyState === WebSocket.OPEN) {
@@ -99,25 +104,27 @@ export default function Canvas({ boardId }) {
     link.click();
   };
 
-  // Save a snapshot BEFORE the stroke begins so each stroke is one undo step
-  const handlePointerDown = () => {
-    saveSnapshot();
+  const handlePointerDown = (e) => {
+    if (tool === "note") {
+      const { x, y } = getCanvasCoords(e, canvasRef.current);
+      createNote(x, y);
+    } else {
+      saveSnapshot();
+    }
   };
 
   const handlePointerMove = (e) => {
     if (!canvasRef.current) return;
     const { x, y } = getCanvasCoords(e, canvasRef.current);
-
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({ type: "cursor_move", x, y, username })
       );
     }
-
-    drawMouseMove(e);
+    if (tool !== "note") drawMouseMove(e);
   };
 
-  const handlePointerUp = () => {};
+  const cursorStyle = tool === "note" ? "cell" : "crosshair";
 
   return (
     <div style={containerStyle}>
@@ -144,9 +151,20 @@ export default function Canvas({ boardId }) {
           height={800}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
-          onPointerUp={handlePointerUp}
-          style={canvasStyle}
+          style={{ ...canvasStyle, cursor: cursorStyle }}
         />
+
+        {notes.map((note) => (
+          <StickyNote
+            key={note.id}
+            note={note}
+            onMove={moveNote}
+            onTextChange={updateNoteText}
+            onDelete={deleteNote}
+            canvasRef={canvasRef}
+          />
+        ))}
+
         {Object.entries(cursors).map(([id, cursor]) => {
           const screen = toScreenCoords(cursor.x, cursor.y, canvasRef.current);
           return (
@@ -167,7 +185,6 @@ export default function Canvas({ boardId }) {
   );
 }
 
-// Styles
 const containerStyle = {
   display: "flex",
   justifyContent: "center",

@@ -2,35 +2,31 @@ const WebSocket = require("ws");
 
 const wss = new WebSocket.Server({ port: 3001 });
 
+const BROADCAST_ALL = new Set(["clear_board"]);
+const BROADCAST_OTHERS = new Set([
+  "draw",
+  "note_create",
+  "note_move",
+  "note_update",
+  "cursor_move",
+]);
+
 wss.on("connection", (ws) => {
   ws.on("message", (message) => {
-    const data = JSON.parse(message);
+    let data;
+    try {
+      data = JSON.parse(message);
+    } catch {
+      return;
+    }
 
-    if (data.type === "clear_board") {
+    if (BROADCAST_ALL.has(data.type)) {
       wss.clients.forEach((client) => {
         if (client.readyState === WebSocket.OPEN) {
           client.send(JSON.stringify(data));
         }
       });
-    }
-
-    if (data.type === "draw") {
-      wss.clients.forEach((client) => {
-        if (client !== ws && client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(data));
-        }
-      });
-    }
-
-    if (data.type === "note_create" || data.type === "note_move") {
-      wss.clients.forEach((client) => {
-        if (client !== ws && client.readyState === WebSocket.OPEN) {
-          client.send(JSON.stringify(data));
-        }
-      });
-    }
-
-    if (data.type === "cursor_move") {
+    } else if (BROADCAST_OTHERS.has(data.type)) {
       wss.clients.forEach((client) => {
         if (client !== ws && client.readyState === WebSocket.OPEN) {
           client.send(JSON.stringify(data));

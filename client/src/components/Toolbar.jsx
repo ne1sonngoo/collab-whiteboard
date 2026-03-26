@@ -24,8 +24,9 @@ export default function Toolbar({
 
   return (
     <div style={toolbarStyle}>
-      <button onClick={() => setTool("pen")} style={tool === "pen" ? activeButtonStyle : buttonStyle}>✏️</button>
-      <button onClick={() => setTool("eraser")} style={tool === "eraser" ? activeButtonStyle : buttonStyle}>🧽</button>
+      <button onClick={() => setTool("pen")} style={tool === "pen" ? activeButtonStyle : buttonStyle} title="Pen">✏️</button>
+      <button onClick={() => setTool("eraser")} style={tool === "eraser" ? activeButtonStyle : buttonStyle} title="Eraser">🧽</button>
+      <button onClick={() => setTool("note")} style={tool === "note" ? activeButtonStyle : buttonStyle} title="Sticky Note">📝</button>
 
       <div style={dividerStyle} />
 
