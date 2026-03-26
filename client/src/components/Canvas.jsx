@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import useSocket from "../hooks/useSocket";
 import useDrawing from "../hooks/useDrawing";
 import useCursor from "../hooks/useCursor";
@@ -13,6 +13,11 @@ export default function Canvas({ boardId }) {
   const {
     handleMouseMove: drawMouseMove,
     drawRemote,
+    saveSnapshot,
+    undo,
+    redo,
+    canUndo,
+    canRedo,
     color,
     setColor,
     size,
@@ -26,14 +31,35 @@ export default function Canvas({ boardId }) {
     const saved = localStorage.getItem("drawing_username");
     if (saved) return saved;
     return "User-" + Math.floor(Math.random() * 10000);
-  }); 
+  });
 
   const updateUsername = (newName) => {
     setUsername(newName);
     localStorage.setItem("drawing_username", newName);
+  };
+
+  // Keyboard shortcuts: Ctrl+Z = undo, Ctrl+Y / Ctrl+Shift+Z = redo
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const isMac = navigator.platform.toUpperCase().includes("MAC");
+      const ctrlOrCmd = isMac ? e.metaKey : e.ctrlKey;
+
+      if (ctrlOrCmd && e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undo();
+      } else if (
+        (ctrlOrCmd && e.key === "y") ||
+        (ctrlOrCmd && e.shiftKey && e.key === "z")
+      ) {
+        e.preventDefault();
+        redo();
+      }
     };
 
-  // Helper to clear canvas
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [undo, redo]);
+
   const clearCanvas = () => {
     if (!canvasRef.current) return;
     const ctx = canvasRef.current.getContext("2d");
@@ -57,6 +83,8 @@ export default function Canvas({ boardId }) {
   }
 
   const clearBoard = () => {
+    // Save current state so the clear itself is undoable
+    saveSnapshot();
     clearCanvas();
     if (socketRef.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({ type: "clear_board" }));
@@ -65,27 +93,31 @@ export default function Canvas({ boardId }) {
 
   const handleSaveImage = () => {
     if (!canvasRef.current) return;
-
-    const link = document.createElement('a');
+    const link = document.createElement("a");
     link.download = `drawing-${boardId}.png`;
     link.href = canvasRef.current.toDataURL();
     link.click();
+  };
+
+  // Save a snapshot BEFORE the stroke begins so each stroke is one undo step
+  const handlePointerDown = () => {
+    saveSnapshot();
   };
 
   const handlePointerMove = (e) => {
     if (!canvasRef.current) return;
     const { x, y } = getCanvasCoords(e, canvasRef.current);
 
-    // Send cursor position
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type: "cursor_move", x, y, username,}));
+      socketRef.current.send(
+        JSON.stringify({ type: "cursor_move", x, y, username })
+      );
     }
 
     drawMouseMove(e);
   };
 
-  const handlePointerUp = () => {
-  };
+  const handlePointerUp = () => {};
 
   return (
     <div style={containerStyle}>
@@ -100,12 +132,17 @@ export default function Canvas({ boardId }) {
         saveImage={handleSaveImage}
         username={username}
         setUsername={updateUsername}
+        undo={undo}
+        redo={redo}
+        canUndo={canUndo}
+        canRedo={canRedo}
       />
       <div style={canvasContainerStyle}>
         <canvas
           ref={canvasRef}
           width={1400}
           height={800}
+          onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
           style={canvasStyle}
