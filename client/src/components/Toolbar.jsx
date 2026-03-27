@@ -1,82 +1,65 @@
 import { useState } from "react";
 
+const TOOLS = [
+  { id: "pen",    label: "✏️",  title: "Pen" },
+  { id: "eraser", label: "🧽", title: "Eraser" },
+  { id: "line",   label: "╱",  title: "Line" },
+  { id: "rect",   label: "▭",  title: "Rectangle" },
+  { id: "circle", label: "○",  title: "Circle / Ellipse" },
+  { id: "note",   label: "📝", title: "Sticky Note" },
+];
+
 export default function Toolbar({
-  tool,
-  setTool,
-  color,
-  setColor,
-  size,
-  setSize,
-  clearBoard,
-  saveImage,
-  username,
-  setUsername,
-  undo,
-  redo,
-  canUndo,
-  canRedo,
+  tool, setTool,
+  color, setColor,
+  size, setSize,
+  clearBoard, saveImage,
+  username, setUsername,
+  undo, redo, canUndo, canRedo,
 }) {
   const [tempName, setTempName] = useState(username);
 
-  const handleNameSubmit = () => {
-    if (tempName.trim()) setUsername(tempName.trim());
-  };
-
   return (
     <div style={toolbarStyle}>
-      <button onClick={() => setTool("pen")} style={tool === "pen" ? activeButtonStyle : buttonStyle} title="Pen">✏️</button>
-      <button onClick={() => setTool("eraser")} style={tool === "eraser" ? activeButtonStyle : buttonStyle} title="Eraser">🧽</button>
-      <button onClick={() => setTool("note")} style={tool === "note" ? activeButtonStyle : buttonStyle} title="Sticky Note">📝</button>
+      {/* Tool buttons */}
+      {TOOLS.map(({ id, label, title }) => (
+        <button
+          key={id}
+          onClick={() => setTool(id)}
+          title={title}
+          style={tool === id ? activeButtonStyle : buttonStyle}
+        >
+          {label}
+        </button>
+      ))}
 
       <div style={dividerStyle} />
 
       {/* Undo / Redo */}
-      <button
-        onClick={undo}
-        disabled={!canUndo}
-        title="Undo (Ctrl+Z)"
-        style={canUndo ? buttonStyle : disabledButtonStyle}
-      >
-        ↩️
-      </button>
-      <button
-        onClick={redo}
-        disabled={!canRedo}
-        title="Redo (Ctrl+Y)"
-        style={canRedo ? buttonStyle : disabledButtonStyle}
-      >
-        ↪️
-      </button>
+      <button onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)" style={canUndo ? buttonStyle : dimButtonStyle}>↩️</button>
+      <button onClick={redo} disabled={!canRedo} title="Redo (Ctrl+Y)" style={canRedo ? buttonStyle : dimButtonStyle}>↪️</button>
 
       <div style={dividerStyle} />
 
+      {/* Color + size */}
+      <input type="color" value={color} onChange={(e) => setColor(e.target.value)} title="Color" style={{ cursor: "pointer" }} />
       <input
-        type="color"
-        value={color}
-        onChange={(e) => setColor(e.target.value)}
-        title="Brush color"
-      />
-      <input
-        type="range"
-        min="1"
-        max="20"
-        value={size}
+        type="range" min="1" max="20" value={size}
         onChange={(e) => setSize(Number(e.target.value))}
-        title={`Brush size: ${size}`}
+        title={`Size: ${size}`} style={{ width: 72 }}
       />
 
       <div style={dividerStyle} />
 
-      <div style={{ display: "flex", gap: 4 }}>
-        <input
-          value={tempName}
-          onChange={(e) => setTempName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleNameSubmit()}
-          placeholder="Your name"
-          style={{ width: 100, padding: "4px 8px", borderRadius: 8 }}
-        />
-        <button onClick={handleNameSubmit} style={buttonStyle} title="Set name">✔️</button>
-      </div>
+      {/* Username */}
+      <input
+        value={tempName}
+        onChange={(e) => setTempName(e.target.value)}
+        onKeyDown={(e) => e.key === "Enter" && setUsername(tempName.trim())}
+        onBlur={() => tempName.trim() && setUsername(tempName.trim())}
+        placeholder="Your name"
+        style={nameInputStyle}
+      />
 
       <div style={dividerStyle} />
 
@@ -87,45 +70,20 @@ export default function Toolbar({
 }
 
 const toolbarStyle = {
-  position: "fixed",
-  top: 20,
-  left: "50%",
-  transform: "translateX(-50%)",
-  display: "flex",
-  gap: 8,
-  padding: "10px 16px",
-  borderRadius: 16,
-  alignItems: "center",
-  background: "rgba(255,255,255,0.7)",
-  backdropFilter: "blur(10px)",
-  boxShadow: "0 8px 30px rgba(0,0,0,0.1)",
-  border: "1px solid rgba(255,255,255,0.3)",
-  zIndex: 1000,
+  position: "fixed", top: 20, left: "50%", transform: "translateX(-50%)",
+  display: "flex", gap: 6, padding: "10px 16px", borderRadius: 16,
+  alignItems: "center", background: "rgba(255,255,255,0.85)",
+  backdropFilter: "blur(10px)", boxShadow: "0 8px 30px rgba(0,0,0,0.12)",
+  border: "1px solid rgba(255,255,255,0.4)", zIndex: 1000,
 };
-
 const buttonStyle = {
-  cursor: "pointer",
-  background: "none",
-  border: "none",
-  fontSize: 18,
-  padding: "4px 6px",
-  borderRadius: 8,
+  cursor: "pointer", background: "none", border: "none",
+  fontSize: 17, padding: "4px 7px", borderRadius: 8,
 };
-
 const activeButtonStyle = {
-  ...buttonStyle,
-  background: "rgba(0,0,0,0.1)",
+  ...buttonStyle, background: "rgba(0,0,0,0.12)",
+  boxShadow: "inset 0 1px 3px rgba(0,0,0,0.15)",
 };
-
-const disabledButtonStyle = {
-  ...buttonStyle,
-  opacity: 0.3,
-  cursor: "default",
-};
-
-const dividerStyle = {
-  width: 1,
-  height: 24,
-  background: "rgba(0,0,0,0.15)",
-  margin: "0 2px",
-};
+const dimButtonStyle = { ...buttonStyle, opacity: 0.3, cursor: "default" };
+const dividerStyle = { width: 1, height: 24, background: "rgba(0,0,0,0.12)", margin: "0 2px" };
+const nameInputStyle = { width: 90, padding: "4px 8px", borderRadius: 8, border: "1px solid #ddd", fontSize: 13 };

@@ -2,11 +2,11 @@ import { useRef, useEffect } from "react";
 
 export default function useSocket(boardId, onMessage) {
   const socketRef = useRef(null);
-  // Always hold the latest onMessage without recreating the socket
   const onMessageRef = useRef(onMessage);
-  useEffect(() => {
-    onMessageRef.current = onMessage;
-  }, [onMessage]);
+
+  // Sync assignment during render — no useEffect lag, no stale closure window.
+  // By the time any ws.onmessage fires, this already points at the latest handler.
+  onMessageRef.current = onMessage;
 
   useEffect(() => {
     const ws = new WebSocket("ws://localhost:3001");
@@ -18,16 +18,15 @@ export default function useSocket(boardId, onMessage) {
 
     ws.onmessage = (event) => {
       try {
-        const data = JSON.parse(event.data);
-        onMessageRef.current(data); // always calls the latest handler
+        onMessageRef.current(JSON.parse(event.data));
       } catch (e) {
         console.error("WS parse error", e);
       }
     };
 
-    return () => {
-      ws.close();
-    };
+    ws.onerror = () => {}; // Strict Mode fires a harmless error on the throwaway socket
+
+    return () => ws.close();
   }, [boardId]);
 
   return socketRef;

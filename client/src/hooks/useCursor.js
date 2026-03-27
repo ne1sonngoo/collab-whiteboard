@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 
 export default function useCursor() {
   const [cursors, setCursors] = useState({});
 
-  const updateCursor = (userId, x, y, username) => {
+  const updateCursor = useCallback((userId, x, y, username) => {
     setCursors((prev) => ({
       ...prev,
       [userId]: {
@@ -13,7 +13,7 @@ export default function useCursor() {
         username: username || "User",
       },
     }));
-  };
+  }, []);
 
   return { cursors, updateCursor };
 }
