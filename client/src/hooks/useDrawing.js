@@ -3,9 +3,11 @@ import { useRef, useState } from "react";
 const MAX_HISTORY = 30;
 const SHAPE_TOOLS = new Set(["rect", "circle", "line"]);
 
-const ctx2d = (canvas) => canvas.getContext("2d", { willReadFrequently: true });
+export const ctx2d = (canvas) =>
+  canvas.getContext("2d", { willReadFrequently: true });
 
-function drawShape(ctx, tool, x0, y0, x1, y1, color, size) {
+// ── Shape renderer (used for local draw + remote replay) ─────────────────────
+export function drawShape(ctx, tool, x0, y0, x1, y1, color, size) {
   ctx.globalCompositeOperation = "source-over";
   ctx.strokeStyle = color;
   ctx.lineWidth = size;
@@ -34,6 +36,60 @@ function drawShape(ctx, tool, x0, y0, x1, y1, color, size) {
   }
 }
 
+// ── Flood fill ───────────────────────────────────────────────────────────────
+export function floodFill(canvas, startX, startY, fillHex) {
+  const ctx = ctx2d(canvas);
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+  const w = canvas.width;
+  const h = canvas.height;
+  const sx = Math.max(0, Math.min(w - 1, Math.floor(startX)));
+  const sy = Math.max(0, Math.min(h - 1, Math.floor(startY)));
+
+  const fr = parseInt(fillHex.slice(1, 3), 16);
+  const fg = parseInt(fillHex.slice(3, 5), 16);
+  const fb = parseInt(fillHex.slice(5, 7), 16);
+
+  const si = (sy * w + sx) * 4;
+  const tr = data[si],
+    tg = data[si + 1],
+    tb = data[si + 2],
+    ta = data[si + 3];
+
+  // Already the fill color
+  if (tr === fr && tg === fg && tb === fb && ta === 255) return;
+
+  const TOL = 30;
+  const matches = (i) =>
+    Math.abs(data[i] - tr) <= TOL &&
+    Math.abs(data[i + 1] - tg) <= TOL &&
+    Math.abs(data[i + 2] - tb) <= TOL &&
+    Math.abs(data[i + 3] - ta) <= TOL;
+
+  const visited = new Uint8Array(w * h);
+  const stack = [sy * w + sx];
+
+  while (stack.length) {
+    const pos = stack.pop();
+    if (visited[pos]) continue;
+    visited[pos] = 1;
+    const x = pos % w;
+    const y = (pos / w) | 0;
+    const i = pos * 4;
+    if (!matches(i)) continue;
+    data[i] = fr;
+    data[i + 1] = fg;
+    data[i + 2] = fb;
+    data[i + 3] = 255;
+    if (x > 0) stack.push(pos - 1);
+    if (x < w - 1) stack.push(pos + 1);
+    if (y > 0) stack.push(pos - w);
+    if (y < h - 1) stack.push(pos + w);
+  }
+  ctx.putImageData(imageData, 0, 0);
+}
+
+// ── Hook ─────────────────────────────────────────────────────────────────────
 export default function useDrawing(canvasRef, overlayRef) {
   const prevPoint = useRef(null);
   const shapeStart = useRef(null);
@@ -108,7 +164,7 @@ export default function useDrawing(canvasRef, overlayRef) {
     };
   };
 
-  // ── Freehand / eraser ────────────────────────────────────────────────────
+  // ── Freehand / eraser ─────────────────────────────────────────────────────
   const handleMouseMove = (e, socketRef) => {
     if (!canvasRef.current || e.buttons !== 1) {
       if (e.buttons !== 1) prevPoint.current = null;
@@ -116,7 +172,6 @@ export default function useDrawing(canvasRef, overlayRef) {
     }
 
     if (SHAPE_TOOLS.has(tool)) {
-      // Shape preview on overlay
       if (!shapeStart.current) return;
       const { x, y } = getCoords(e);
       if (overlayRef?.current) {
@@ -173,19 +228,17 @@ export default function useDrawing(canvasRef, overlayRef) {
     prevPoint.current = { x, y };
   };
 
-  // ── Shape start ──────────────────────────────────────────────────────────
+  // ── Shape start/end ───────────────────────────────────────────────────────
   const handleShapeStart = (e) => {
     if (!SHAPE_TOOLS.has(tool)) return;
     shapeStart.current = getCoords(e);
   };
 
-  // ── Shape commit ─────────────────────────────────────────────────────────
   const handleShapeEnd = (e, socketRef) => {
     if (!SHAPE_TOOLS.has(tool) || !shapeStart.current || !canvasRef.current)
       return;
     const { x, y } = getCoords(e);
     clearOverlay();
-
     const ctx = ctx2d(canvasRef.current);
     drawShape(
       ctx,
@@ -197,7 +250,6 @@ export default function useDrawing(canvasRef, overlayRef) {
       color,
       size,
     );
-
     if (socketRef?.current?.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({
@@ -215,10 +267,56 @@ export default function useDrawing(canvasRef, overlayRef) {
     shapeStart.current = null;
   };
 
-  // ── Remote draw (freehand + shapes use same event) ───────────────────────
+  // ── Text commit ───────────────────────────────────────────────────────────
+  const commitText = (cx, cy, text, socketRef) => {
+    if (!canvasRef.current || !text.trim()) return;
+    const canvas = canvasRef.current;
+    const ctx = ctx2d(canvas);
+    const fontSize = Math.max(12, size * 8);
+    ctx.globalCompositeOperation = "source-over";
+    ctx.fillStyle = color;
+    ctx.font = `${fontSize}px sans-serif`;
+    // Support multi-line
+    text.split("\n").forEach((line, i) => {
+      ctx.fillText(line, cx, cy + i * fontSize * 1.2);
+    });
+    if (socketRef?.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(
+        JSON.stringify({
+          type: "draw",
+          tool: "text",
+          x: cx,
+          y: cy,
+          text,
+          color,
+          size,
+        }),
+      );
+    }
+  };
+
+  // ── Fill ──────────────────────────────────────────────────────────────────
+  const handleFill = (cx, cy, socketRef) => {
+    if (!canvasRef.current) return;
+    floodFill(canvasRef.current, cx, cy, color);
+    if (socketRef?.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(
+        JSON.stringify({
+          type: "draw",
+          tool: "fill",
+          x: cx,
+          y: cy,
+          color,
+        }),
+      );
+    }
+  };
+
+  // ── Remote draw ───────────────────────────────────────────────────────────
   const drawRemote = (canvasRef, data) => {
     if (!canvasRef.current) return;
     const ctx = ctx2d(canvasRef.current);
+
     if (SHAPE_TOOLS.has(data.tool)) {
       drawShape(
         ctx,
@@ -230,6 +328,20 @@ export default function useDrawing(canvasRef, overlayRef) {
         data.color || "#000",
         data.size || 2,
       );
+      return;
+    }
+    if (data.tool === "text") {
+      const fontSize = Math.max(12, (data.size || 2) * 8);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = data.color || "#000";
+      ctx.font = `${fontSize}px sans-serif`;
+      (data.text || "").split("\n").forEach((line, i) => {
+        ctx.fillText(line, data.x, data.y + i * fontSize * 1.2);
+      });
+      return;
+    }
+    if (data.tool === "fill") {
+      floodFill(canvasRef.current, data.x, data.y, data.color || "#000");
       return;
     }
     if (data.tool === "eraser") {
@@ -252,6 +364,8 @@ export default function useDrawing(canvasRef, overlayRef) {
     handleMouseMove,
     handleShapeStart,
     handleShapeEnd,
+    commitText,
+    handleFill,
     drawRemote,
     saveSnapshot,
     undo,
@@ -265,5 +379,7 @@ export default function useDrawing(canvasRef, overlayRef) {
     tool,
     setTool,
     isShapeTool: SHAPE_TOOLS.has(tool),
+    isTextTool: tool === "text",
+    isFillTool: tool === "fill",
   };
 }
