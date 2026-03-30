@@ -1,14 +1,14 @@
 /**
  * useHistory.js
  * Undo/redo via ImageData snapshots.
- * Completely decoupled from tool logic — give it a canvasRef, get back
- * saveSnapshot / undo / redo and UI-ready canUndo / canRedo booleans.
+ * Accepts an optional onUndo/onRedo callback so Canvas can trigger a
+ * server-side sync after each undo/redo operation.
  */
 import { useRef, useState } from "react";
 import { ctx2d } from "../utils/drawingUtils";
 import { MAX_HISTORY } from "../constants";
 
-export default function useHistory(canvasRef) {
+export default function useHistory(canvasRef, { onUndo, onRedo } = {}) {
   const historyRef = useRef([]);
   const historyIdxRef = useRef(-1);
   const [canUndo, setCanUndo] = useState(false);
@@ -47,6 +47,7 @@ export default function useHistory(canvasRef) {
         0,
       );
     sync();
+    onUndo?.();
   };
 
   const redo = () => {
@@ -60,6 +61,7 @@ export default function useHistory(canvasRef) {
         0,
       );
     sync();
+    onRedo?.();
   };
 
   return { saveSnapshot, undo, redo, canUndo, canRedo };

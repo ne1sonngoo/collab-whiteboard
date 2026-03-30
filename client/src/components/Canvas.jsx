@@ -1,7 +1,6 @@
 /**
  * Canvas.jsx
- * Top-level board component. Orchestrates hooks and sub-components.
- * Contains no drawing logic — that lives in hooks and utils.
+ * Top-level board component. Pure orchestration — no drawing logic here.
  */
 import { useRef, useState } from "react";
 import { CANVAS_W, CANVAS_H, MSG } from "../constants";
@@ -9,24 +8,47 @@ import { ctx2d } from "../utils/drawingUtils";
 import { exportBoardAsPng } from "../utils/exportUtils";
 import { getCanvasCoords } from "../utils/canvasUtils";
 
-import useSocket   from "../hooks/useSocket";
-import useDrawing  from "../hooks/useDrawing";
-import useCursor   from "../hooks/useCursor";
-import useNotes    from "../hooks/useNotes";
-import useZoomPan  from "../hooks/useZoomPan";
-import useTextInput from "../hooks/useTextInput";
+import useSocket            from "../hooks/useSocket";
+import useDrawing           from "../hooks/useDrawing";
+import useCursor            from "../hooks/useCursor";
+import useNotes             from "../hooks/useNotes";
+import useZoomPan           from "../hooks/useZoomPan";
+import useTextInput         from "../hooks/useTextInput";
 import useKeyboardShortcuts from "../hooks/useKeyboardShortcuts";
 
-import Toolbar           from "./Toolbar";
-import StickyNote        from "./StickyNote";
-import RemoteCursors     from "./RemoteCursors";
-import TextInputOverlay  from "./TextInputOverlay";
-import ZoomBadge         from "./ZoomBadge";
+import Toolbar          from "./Toolbar";
+import StickyNote       from "./StickyNote";
+import RemoteCursors    from "./RemoteCursors";
+import TextInputOverlay from "./TextInputOverlay";
+import ZoomBadge        from "./ZoomBadge";
+
+// Stable userId per browser session — used by server to target undo correctly
+function getOrCreateUserId() {
+  let id = sessionStorage.getItem("wb_userId");
+  if (!id) {
+    id = `u-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    sessionStorage.setItem("wb_userId", id);
+  }
+  return id;
+}
+const USER_ID = getOrCreateUserId();
 
 export default function Canvas({ boardId }) {
   const canvasRef    = useRef(null);
   const overlayRef   = useRef(null);
   const containerRef = useRef(null);
+
+  // socketRef forward-declared so undo callback can close over it
+  const socketRef = useRef(null);
+
+  // ── Undo sync ─────────────────────────────────────────────────────────────
+  // After a local undo, tell the server to pop our last stroke.
+  // The server then broadcasts a full init to all clients → everyone resyncs.
+  const handleUndoSync = () => {
+    if (socketRef.current?.readyState === WebSocket.OPEN) {
+      socketRef.current.send(JSON.stringify({ type: MSG.UNDO_LAST, userId: USER_ID }));
+    }
+  };
 
   // ── Hooks ─────────────────────────────────────────────────────────────────
   const {
@@ -35,10 +57,9 @@ export default function Canvas({ boardId }) {
     undo, redo, canUndo, canRedo,
     color, setColor, size, setSize, tool, setTool,
     isShapeTool, isTextTool, isFillTool,
-  } = useDrawing(canvasRef, overlayRef);
+  } = useDrawing(canvasRef, overlayRef, { userId: USER_ID, onUndo: handleUndoSync });
 
   const { cursors, updateCursor } = useCursor();
-
   const { notes, createNote, moveNote, updateNoteText, deleteNote, applyRemoteNote, initNotes } =
     useNotes();
 
@@ -66,37 +87,47 @@ export default function Canvas({ boardId }) {
   function handleSocketMessage(data) {
     switch (data.type) {
       case MSG.INIT:
+        // Full resync — used on join AND after any undo
         clearCanvas();
         (data.strokes || []).forEach((s) => drawRemote(canvasRef, s));
         initNotes(data.notes || []);
         break;
-      case MSG.DRAW:         drawRemote(canvasRef, data);                           break;
-      case MSG.CURSOR_MOVE:  updateCursor(data.userId, data.x, data.y, data.username); break;
-      case MSG.CLEAR_BOARD:  clearCanvas();                                         break;
+      case MSG.DRAW:
+        drawRemote(canvasRef, data);
+        break;
+      case MSG.CURSOR_MOVE:
+        updateCursor(data.userId, data.x, data.y, data.username);
+        break;
+      case MSG.CLEAR_BOARD:
+        clearCanvas();
+        break;
       case MSG.NOTE_CREATE:
       case MSG.NOTE_MOVE:
-      case MSG.NOTE_UPDATE:  applyRemoteNote(data);                                 break;
-      default:               break;
+      case MSG.NOTE_UPDATE:
+      case MSG.NOTE_DELETE:
+        applyRemoteNote(data);
+        break;
+      default:
+        break;
     }
   }
 
-  const socketRef = useSocket(boardId, handleSocketMessage);
-
+  // Assign to the ref declared above so handleUndoSync can use it
+  const _socketRef = useSocket(boardId, handleSocketMessage);
+  socketRef.current = _socketRef.current;
+  // Keep them in sync — _socketRef is the real ref managed by useSocket
   const send = (data) => {
-    if (socketRef.current?.readyState === WebSocket.OPEN)
-      socketRef.current.send(JSON.stringify(data));
+    if (_socketRef.current?.readyState === WebSocket.OPEN)
+      _socketRef.current.send(JSON.stringify(data));
   };
 
   // ── Pointer routing ───────────────────────────────────────────────────────
   const handlePointerDown = (e) => {
     if (startPanIfNeeded(e)) return;
-
     const { x, y } = getCanvasCoords(e, canvasRef.current);
-
-    if (isTextTool)       { textInputHook.open(x, y); return; }
-    if (isFillTool)       { saveSnapshot(); handleFill(x, y, socketRef); return; }
-    if (tool === "note")  { createNote(x, y, socketRef); return; }
-
+    if (isTextTool)      { textInputHook.open(x, y); return; }
+    if (isFillTool)      { saveSnapshot(); handleFill(x, y, _socketRef); return; }
+    if (tool === "note") { createNote(x, y, _socketRef); return; }
     saveSnapshot();
     if (isShapeTool) handleShapeStart(e);
   };
@@ -106,18 +137,18 @@ export default function Canvas({ boardId }) {
     if (!canvasRef.current) return;
     const { x, y } = getCanvasCoords(e, canvasRef.current);
     send({ type: MSG.CURSOR_MOVE, x, y, username });
-    if (!isTextTool && !isFillTool && tool !== "note") drawMouseMove(e, socketRef);
+    if (!isTextTool && !isFillTool && tool !== "note") drawMouseMove(e, _socketRef);
   };
 
   const handlePointerUp = (e) => {
     endPan();
-    if (isShapeTool) handleShapeEnd(e, socketRef);
+    if (isShapeTool) handleShapeEnd(e, _socketRef);
   };
 
   // ── Cursor style ──────────────────────────────────────────────────────────
   const cursorStyle = isSpaceDown() ? "grab"
-    : isFillTool    ? "cell"
-    : isTextTool    ? "text"
+    : isFillTool      ? "cell"
+    : isTextTool      ? "text"
     : tool === "note" ? "copy"
     : "crosshair";
 
@@ -137,7 +168,6 @@ export default function Canvas({ boardId }) {
       />
 
       <div ref={containerRef} style={containerStyle}>
-        {/* Single transform wrapper — everything inside moves together */}
         <div style={{
           position: "absolute", width: "100%", height: "100%",
           transform: `translate(${zoom.panX}px,${zoom.panY}px) scale(${zoom.scale})`,
@@ -169,9 +199,9 @@ export default function Canvas({ boardId }) {
               note={note}
               posLeft={`${(note.x / CANVAS_W) * 100}%`}
               posTop={`${(note.y  / CANVAS_H) * 100}%`}
-              onMove={(id, x, y) => moveNote(id, x, y, socketRef)}
-              onTextChange={(id, text) => updateNoteText(id, text, socketRef)}
-              onDelete={deleteNote}
+              onMove={(id, x, y) => moveNote(id, x, y, _socketRef)}
+              onTextChange={(id, text) => updateNoteText(id, text, _socketRef)}
+              onDelete={(id) => deleteNote(id, _socketRef)}
               canvasRef={canvasRef}
             />
           ))}
@@ -185,8 +215,8 @@ export default function Canvas({ boardId }) {
   );
 }
 
-const outerStyle     = { display: "flex", justifyContent: "center", marginTop: 40 };
-const containerStyle = { width: "95vw", height: "80vh", border: "2px solid black", background: "#f0f0f0", position: "relative", overflow: "hidden" };
-const canvasBase     = { width: "100%", height: "100%", position: "absolute", top: 0, left: 0 };
+const outerStyle      = { display: "flex", justifyContent: "center", marginTop: 40 };
+const containerStyle  = { width: "95vw", height: "80vh", border: "2px solid black", background: "#f0f0f0", position: "relative", overflow: "hidden" };
+const canvasBase      = { width: "100%", height: "100%", position: "absolute", top: 0, left: 0 };
 const mainCanvasStyle = { ...canvasBase, background: "white", zIndex: 1 };
 const overlayStyle    = { ...canvasBase, background: "transparent", zIndex: 2 };
