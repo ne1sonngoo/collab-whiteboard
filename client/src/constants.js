@@ -39,4 +39,6 @@ export const MSG = {
   NOTE_UPDATE: "note_update",
   NOTE_DELETE: "note_delete",
   UNDO_LAST: "undo_last",
+  ROOM_RENAME: "room_rename",
+  ROOM_INFO: "room_info",
 };

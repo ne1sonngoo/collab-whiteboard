@@ -2,7 +2,7 @@
  * Canvas.jsx
  * Top-level board component. Pure orchestration — no drawing logic here.
  */
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { CANVAS_W, CANVAS_H, MSG } from "../constants";
 import { ctx2d } from "../utils/drawingUtils";
 import { exportBoardAsPng } from "../utils/exportUtils";
@@ -21,8 +21,8 @@ import StickyNote       from "./StickyNote";
 import RemoteCursors    from "./RemoteCursors";
 import TextInputOverlay from "./TextInputOverlay";
 import ZoomBadge        from "./ZoomBadge";
+import RoomTitle        from "./RoomTitle";
 
-// Stable userId per browser session — used by server to target undo correctly
 function getOrCreateUserId() {
   let id = sessionStorage.getItem("wb_userId");
   if (!id) {
@@ -37,20 +37,23 @@ export default function Canvas({ boardId }) {
   const canvasRef    = useRef(null);
   const overlayRef   = useRef(null);
   const containerRef = useRef(null);
+  const socketRef    = useRef(null);
 
-  // socketRef forward-declared so undo callback can close over it
-  const socketRef = useRef(null);
+  // ── Room name ─────────────────────────────────────────────────────────────
+  const [roomName, setRoomName] = useState("");
+
+  // Keep browser tab title in sync
+  useEffect(() => {
+    document.title = roomName ? `${roomName} — Whiteboard` : "Whiteboard";
+  }, [roomName]);
 
   // ── Undo sync ─────────────────────────────────────────────────────────────
-  // After a local undo, tell the server to pop our last stroke.
-  // The server then broadcasts a full init to all clients → everyone resyncs.
   const handleUndoSync = () => {
-    if (socketRef.current?.readyState === WebSocket.OPEN) {
+    if (socketRef.current?.readyState === WebSocket.OPEN)
       socketRef.current.send(JSON.stringify({ type: MSG.UNDO_LAST, userId: USER_ID }));
-    }
   };
 
-  // ── Hooks ─────────────────────────────────────────────────────────────────
+  // ── Drawing / notes / zoom / text hooks ──────────────────────────────────
   const {
     handleMouseMove: drawMouseMove, handleShapeStart, handleShapeEnd,
     commitText, handleFill, drawRemote, saveSnapshot,
@@ -87,7 +90,6 @@ export default function Canvas({ boardId }) {
   function handleSocketMessage(data) {
     switch (data.type) {
       case MSG.INIT:
-        // Full resync — used on join AND after any undo
         clearCanvas();
         (data.strokes || []).forEach((s) => drawRemote(canvasRef, s));
         initNotes(data.notes || []);
@@ -107,18 +109,26 @@ export default function Canvas({ boardId }) {
       case MSG.NOTE_DELETE:
         applyRemoteNote(data);
         break;
+      case MSG.ROOM_INFO:
+      case MSG.ROOM_RENAME:
+        setRoomName(data.name || "");
+        break;
       default:
         break;
     }
   }
 
-  // Assign to the ref declared above so handleUndoSync can use it
   const _socketRef = useSocket(boardId, handleSocketMessage);
+  // Mirror into the forward-declared ref so callbacks always see the live socket
   socketRef.current = _socketRef.current;
-  // Keep them in sync — _socketRef is the real ref managed by useSocket
+
   const send = (data) => {
     if (_socketRef.current?.readyState === WebSocket.OPEN)
       _socketRef.current.send(JSON.stringify(data));
+  };
+
+  const handleRename = (name) => {
+    send({ type: MSG.ROOM_RENAME, name });
   };
 
   // ── Pointer routing ───────────────────────────────────────────────────────
@@ -166,6 +176,8 @@ export default function Canvas({ boardId }) {
         setUsername={(n) => { setUsername(n); localStorage.setItem("drawing_username", n); }}
         undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo}
       />
+
+      <RoomTitle name={roomName} onChange={handleRename} />
 
       <div ref={containerRef} style={containerStyle}>
         <div style={{
@@ -215,8 +227,8 @@ export default function Canvas({ boardId }) {
   );
 }
 
-const outerStyle      = { display: "flex", justifyContent: "center", marginTop: 40 };
-const containerStyle  = { width: "95vw", height: "80vh", border: "2px solid black", background: "#f0f0f0", position: "relative", overflow: "hidden" };
+const outerStyle      = { display: "flex", justifyContent: "center", marginTop: 100 };
+const containerStyle  = { width: "95vw", height: "78vh", border: "2px solid black", background: "#f0f0f0", position: "relative", overflow: "hidden" };
 const canvasBase      = { width: "100%", height: "100%", position: "absolute", top: 0, left: 0 };
 const mainCanvasStyle = { ...canvasBase, background: "white", zIndex: 1 };
 const overlayStyle    = { ...canvasBase, background: "transparent", zIndex: 2 };

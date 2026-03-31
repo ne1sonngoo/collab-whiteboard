@@ -1,20 +1,18 @@
 /**
  * server.js
- * WebSocket server with per-room state and collaborative undo support.
+ * WebSocket server with per-room state, collaborative undo, and room naming.
  */
 const WebSocket = require("ws");
 
 const wss = new WebSocket.Server({ port: 3001 });
-const rooms = {}; // { [roomId]: { strokes: DrawEvent[], notes: { [id]: Note } } }
-
+const rooms = {};
 const MAX_STROKES = 10_000;
 
 function getRoom(id) {
-  if (!rooms[id]) rooms[id] = { strokes: [], notes: {} };
+  if (!rooms[id]) rooms[id] = { strokes: [], notes: {}, name: "" };
   return rooms[id];
 }
 
-// Send to all clients in the same room, optionally including the sender
 function broadcast(senderWs, data, { includeSelf = false } = {}) {
   const msg = JSON.stringify(data);
   wss.clients.forEach((client) => {
@@ -25,7 +23,6 @@ function broadcast(senderWs, data, { includeSelf = false } = {}) {
   });
 }
 
-// Send the full room state to every client in the room (used after undo)
 function broadcastInit(roomId) {
   const room = getRoom(roomId);
   const msg = JSON.stringify({
@@ -34,17 +31,16 @@ function broadcastInit(roomId) {
     notes: Object.values(room.notes),
   });
   wss.clients.forEach((client) => {
-    if (client.readyState === WebSocket.OPEN && client.roomId === roomId) {
+    if (client.readyState === WebSocket.OPEN && client.roomId === roomId)
       client.send(msg);
-    }
   });
 }
 
-// ── Message handlers ─────────────────────────────────────────────────────────
 const handlers = {
   join(ws, data) {
     ws.roomId = String(data.room);
     const room = getRoom(ws.roomId);
+    // Send board state
     ws.send(
       JSON.stringify({
         type: "init",
@@ -52,6 +48,8 @@ const handlers = {
         notes: Object.values(room.notes),
       }),
     );
+    // Send current room name separately so client can update title
+    ws.send(JSON.stringify({ type: "room_info", name: room.name }));
   },
 
   draw(ws, data) {
@@ -61,17 +59,14 @@ const handlers = {
     broadcast(ws, data);
   },
 
-  // Pop the last stroke belonging to this userId, then resync every client
   undo_last(ws, data) {
     const room = getRoom(ws.roomId);
-    // Walk backwards and remove the most recent stroke from this user
     for (let i = room.strokes.length - 1; i >= 0; i--) {
       if (room.strokes[i].userId === data.userId) {
         room.strokes.splice(i, 1);
         break;
       }
     }
-    // Broadcast full state to everyone (including sender) so all canvases resync
     broadcastInit(ws.roomId);
   },
 
@@ -108,9 +103,19 @@ const handlers = {
   cursor_move(ws, data) {
     broadcast(ws, data);
   },
+
+  room_rename(ws, data) {
+    const room = getRoom(ws.roomId);
+    room.name = String(data.name || "").slice(0, 80); // cap at 80 chars
+    // Broadcast to everyone including sender so all tabs update
+    broadcast(
+      ws,
+      { type: "room_rename", name: room.name },
+      { includeSelf: true },
+    );
+  },
 };
 
-// ── Connection ────────────────────────────────────────────────────────────────
 wss.on("connection", (ws) => {
   ws.roomId = null;
 
@@ -122,35 +127,28 @@ wss.on("connection", (ws) => {
       console.error("[server] Invalid JSON:", err.message);
       return;
     }
-
     if (!data?.type) return;
-
     if (data.type !== "join" && !ws.roomId) {
       console.warn("[server] Message before join:", data.type);
       return;
     }
-
     const handler = handlers[data.type];
     if (!handler) {
-      console.warn("[server] Unknown message type:", data.type);
+      console.warn("[server] Unknown type:", data.type);
       return;
     }
-
     try {
       handler(ws, data);
     } catch (err) {
-      console.error(`[server] Error in "${data.type}" handler:`, err);
+      console.error(`[server] Error in "${data.type}":`, err);
     }
   });
 
   ws.on("close", () => {
     ws.roomId = null;
   });
-  ws.on("error", (err) =>
-    console.error("[server] WS client error:", err.message),
-  );
+  ws.on("error", (err) => console.error("[server] WS error:", err.message));
 });
 
 wss.on("error", (err) => console.error("[server] Server error:", err));
-
 console.log("WebSocket server running on port 3001");
