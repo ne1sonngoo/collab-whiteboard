@@ -1,43 +1,80 @@
 /**
  * useHistory.js
- * Undo/redo via ImageData snapshots.
- * Accepts an optional onUndo/onRedo callback so Canvas can trigger a
- * server-side sync after each undo/redo operation.
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Undo/redo for the drawing canvas using ImageData snapshots.
+ *
+ * How it works:
+ *   • Before each stroke starts, saveSnapshot() captures the full canvas pixel
+ *     data as an ImageData object and pushes it onto a capped stack.
+ *   • undo() steps the index back one and restores that snapshot.
+ *   • redo() steps the index forward one and restores that snapshot.
+ *   • Starting a new stroke after an undo truncates the forward (redo) history,
+ *     just like every text editor you've ever used.
+ *
+ * Collaborative sync:
+ *   The optional onUndo / onRedo callbacks let Canvas send an undo_last message
+ *   to the server after each local undo, so all clients resync from the
+ *   authoritative server stroke list.
+ *
+ * Memory note:
+ *   Each 1400×800 snapshot is ~4.5 MB (4 bytes × 1400 × 800).
+ *   MAX_HISTORY = 30 caps usage at ~135 MB — acceptable for a browser tab.
  */
 import { useRef, useState } from "react";
 import { ctx2d } from "../utils/drawingUtils";
 import { MAX_HISTORY } from "../constants";
 
 export default function useHistory(canvasRef, { onUndo, onRedo } = {}) {
+  // The snapshot stack — array of ImageData objects
   const historyRef = useRef([]);
+  // Current position in the stack. -1 = empty, 0 = first snapshot, etc.
   const historyIdxRef = useRef(-1);
+
+  // Boolean states exposed to the UI so undo/redo buttons can be greyed out
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
+  /** Update the canUndo/canRedo booleans to reflect the current stack position. */
   const sync = () => {
     setCanUndo(historyIdxRef.current > 0);
     setCanRedo(historyIdxRef.current < historyRef.current.length - 1);
   };
 
+  /**
+   * saveSnapshot — capture the canvas state before a stroke begins.
+   * Must be called in onPointerDown, not during drawing, so each complete
+   * stroke is one undo step rather than one undo step per pixel.
+   */
   const saveSnapshot = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
+
+    // Capture full canvas pixel data
     const snapshot = ctx2d(canvas).getImageData(
       0,
       0,
       canvas.width,
       canvas.height,
     );
+
+    // Truncate any forward history (redo stack) — new action invalidates it
     const history = historyRef.current.slice(0, historyIdxRef.current + 1);
     history.push(snapshot);
+
+    // Cap memory usage — drop the oldest entry when over the limit
     if (history.length > MAX_HISTORY) history.shift();
+
     historyRef.current = history;
     historyIdxRef.current = history.length - 1;
     sync();
   };
 
+  /**
+   * undo — restore the previous snapshot and optionally notify the server.
+   * onUndo() triggers an undo_last message so all other clients resync.
+   */
   const undo = () => {
-    if (historyIdxRef.current <= 0) return;
+    if (historyIdxRef.current <= 0) return; // nothing to undo
     historyIdxRef.current -= 1;
     const canvas = canvasRef.current;
     if (canvas)
@@ -47,11 +84,14 @@ export default function useHistory(canvasRef, { onUndo, onRedo } = {}) {
         0,
       );
     sync();
-    onUndo?.();
+    onUndo?.(); // notify Canvas to send undo_last to server
   };
 
+  /**
+   * redo — restore the next snapshot (only available after an undo).
+   */
   const redo = () => {
-    if (historyIdxRef.current >= historyRef.current.length - 1) return;
+    if (historyIdxRef.current >= historyRef.current.length - 1) return; // nothing to redo
     historyIdxRef.current += 1;
     const canvas = canvasRef.current;
     if (canvas)
