@@ -1,0 +1,28 @@
+# .dockerignore
+# Files excluded from the Docker build context.
+# Keeping the context small speeds up builds and prevents secrets leaking into images.
+
+# Dependencies — always reinstalled inside the container via npm ci
+node_modules
+client/node_modules
+server/node_modules
+
+# Build output — the builder stage produces this fresh every build
+client/dist
+
+# Development and editor files
+.git
+.gitignore
+.env
+.env.*
+*.log
+npm-debug.log*
+
+# OS clutter
+.DS_Store
+Thumbs.db
+
+# Test files — not needed at runtime
+**/*.test.js
+**/*.spec.js
+coverage/

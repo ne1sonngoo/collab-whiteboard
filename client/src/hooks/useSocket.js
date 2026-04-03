@@ -45,7 +45,9 @@ export default function useSocket(
 
   useEffect(() => {
     // Open a new WebSocket connection to the local server
-    const ws = new WebSocket("ws://localhost:3001");
+    const ws = new WebSocket(
+      import.meta.env.VITE_WS_URL || "ws://localhost:3001",
+    );
     socketRef.current = ws;
 
     ws.onopen = () => {

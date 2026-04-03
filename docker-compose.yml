@@ -1,0 +1,39 @@
+# docker-compose.yml
+# ─────────────────────────────────────────────────────────────────────────────
+# Runs the full whiteboard stack with a single command.
+#
+# Usage:
+#   Start (first time or after code changes):  docker compose up --build
+#   Start (no rebuild):                        docker compose up
+#   Stop and remove containers:                docker compose down
+#   View logs:                                 docker compose logs -f
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+  whiteboard:
+    build:
+      # Build context is the project root so the Dockerfile can COPY from both
+      # client/ and server/ subdirectories
+      context: .
+      dockerfile: Dockerfile
+
+    # Map host ports → container ports
+    # Change the left (host) port if something else is already using it
+    ports:
+      - "80:80"       # React app via Nginx — open http://localhost in your browser
+      - "3001:3001"   # WebSocket server — client connects to ws://localhost:3001
+
+    # Restart policy: bring the container back up automatically after crashes
+    # or host reboots, but not if you explicitly ran `docker compose down`
+    restart: unless-stopped
+
+    environment:
+      - NODE_ENV=production
+
+    # Resource limits prevent a memory leak in the in-memory board state
+    # from starving the host machine
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
