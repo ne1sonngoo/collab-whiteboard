@@ -12,9 +12,9 @@
  *     just like every text editor you've ever used.
  *
  * Collaborative sync:
- *   The optional onUndo / onRedo callbacks let Canvas send an undo_last message
- *   to the server after each local undo, so all clients resync from the
- *   authoritative server stroke list.
+ *   The optional onUndo / onRedo callbacks let Canvas send undo_last /
+ *   redo_last messages to the server after each local operation. The server
+ *   then rebroadcasts a full init to all clients so every canvas stays in sync.
  *
  * Memory note:
  *   Each 1400×800 snapshot is ~4.5 MB (4 bytes × 1400 × 800).
@@ -70,8 +70,9 @@ export default function useHistory(canvasRef, { onUndo, onRedo } = {}) {
   };
 
   /**
-   * undo — restore the previous snapshot and optionally notify the server.
-   * onUndo() triggers an undo_last message so all other clients resync.
+   * undo — restore the previous snapshot and notify the server.
+   * onUndo() triggers an undo_last message so the server pops this user's
+   * last stroke and rebroadcasts init to resync all other clients.
    */
   const undo = () => {
     if (historyIdxRef.current <= 0) return; // nothing to undo
@@ -88,7 +89,9 @@ export default function useHistory(canvasRef, { onUndo, onRedo } = {}) {
   };
 
   /**
-   * redo — restore the next snapshot (only available after an undo).
+   * redo — restore the next snapshot and notify the server.
+   * onRedo() triggers a redo_last message so the server re-adds the previously
+   * undone stroke and rebroadcasts init to resync all other clients.
    */
   const redo = () => {
     if (historyIdxRef.current >= historyRef.current.length - 1) return; // nothing to redo
@@ -101,7 +104,7 @@ export default function useHistory(canvasRef, { onUndo, onRedo } = {}) {
         0,
       );
     sync();
-    onRedo?.();
+    onRedo?.(); // notify Canvas to send redo_last to server
   };
 
   return { saveSnapshot, undo, redo, canUndo, canRedo };

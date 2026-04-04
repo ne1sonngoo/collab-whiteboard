@@ -14,6 +14,11 @@
  *      feels instant without waiting for a server round-trip.
  *   2. Broadcast — send the event to the server, which relays it to all
  *      other clients in the room.
+ *
+ * Note shape: { id, x, y, text, color, createdBy }
+ *   createdBy — userId of the user who placed the note. Stored so future
+ *   features (e.g. note ownership indicators, per-user undo of notes) have
+ *   the data they need without a schema migration.
  */
 import { useState, useCallback } from "react";
 
@@ -34,17 +39,19 @@ const sendMsg = (socketRef, data) => {
 };
 
 export default function useNotes() {
-  // Array of note objects: { id, x, y, text, color }
+  // Array of note objects: { id, x, y, text, color, createdBy }
   const [notes, setNotes] = useState([]);
 
   /**
    * createNote — place a new blank note at canvas coordinates (x, y).
    * Called when the user clicks the canvas while the "note" tool is active.
+   * userId is included so the note carries its creator's identity.
    */
-  const createNote = (x, y, socketRef) => {
+  const createNote = (x, y, socketRef, userId) => {
     const id = `${Date.now()}-${++localIdCounter}`; // unique id
     const color = NOTE_COLORS[Math.floor(Math.random() * NOTE_COLORS.length)];
-    const note = { id, x, y, text: "", color };
+    // createdBy stores the userId of whoever placed this note
+    const note = { id, x, y, text: "", color, createdBy: userId || "unknown" };
     setNotes((prev) => [...prev, note]); // optimistic local add
     sendMsg(socketRef, { type: "note_create", note }); // broadcast creation
     return id;

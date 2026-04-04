@@ -16,8 +16,19 @@
  *
  * 3. The join message includes userId, username, and color so the server can
  *    immediately populate the presence list for this user.
+ *
+ * 4. The WebSocket URL is read from the VITE_WS_URL environment variable so
+ *    the same build can point at different servers (local, Docker, cloud) without
+ *    changing source code. Falls back to ws://localhost:3001 for local dev.
+ *    To override: set VITE_WS_URL=ws://yourdomain.com:3001 before running
+ *    `npm run build`.
  */
 import { useRef, useEffect } from "react";
+
+// Read the WebSocket URL from the Vite env variable injected at build time.
+// import.meta.env.VITE_WS_URL is replaced with the literal string value during
+// the Vite build, so no runtime config file is needed.
+const WS_URL = import.meta.env.VITE_WS_URL || "ws://localhost:3001";
 
 export default function useSocket(
   boardId,
@@ -35,7 +46,8 @@ export default function useSocket(
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
 
-  // Also keep identity info in refs for the same reason
+  // Also keep identity info in refs so the ws.onopen handler always sends
+  // the latest username/color even if the component re-renders before connecting
   const userIdRef = useRef(userId);
   const usernameRef = useRef(username);
   const colorRef = useRef(color);
@@ -44,10 +56,8 @@ export default function useSocket(
   colorRef.current = color;
 
   useEffect(() => {
-    // Open a new WebSocket connection to the local server
-    const ws = new WebSocket(
-      import.meta.env.VITE_WS_URL || "ws://localhost:3001",
-    );
+    // Open a new WebSocket connection using the configured URL
+    const ws = new WebSocket(WS_URL);
     socketRef.current = ws;
 
     ws.onopen = () => {

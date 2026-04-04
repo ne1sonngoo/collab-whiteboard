@@ -48,10 +48,7 @@ import PresenceList     from "./PresenceList";
 // ── Stable user identity ──────────────────────────────────────────────────────
 /**
  * Generate a userId that persists for this browser session (cleared on tab close).
- * Used to:
- *   • Attribute draw events to the correct user for targeted undo
- *   • Identify the current user in the presence list
- * sessionStorage is per-tab, so two tabs of the same browser get different IDs.
+ * sessionStorage is per-tab so two tabs get different IDs even in the same browser.
  */
 function getOrCreateUserId() {
   let id = sessionStorage.getItem("wb_userId");
@@ -64,8 +61,8 @@ function getOrCreateUserId() {
 const USER_ID = getOrCreateUserId();
 
 /**
- * Assign a color to this user based on their userId.
- * Same userId always gets the same color (deterministic hash).
+ * Assign a deterministic color to this user based on their userId.
+ * Same userId always gets the same color across sessions.
  */
 function colorForUser(userId) {
   let hash = 0;
@@ -73,6 +70,13 @@ function colorForUser(userId) {
   return PRESENCE_COLORS[Math.abs(hash) % PRESENCE_COLORS.length];
 }
 const USER_COLOR = colorForUser(USER_ID);
+
+// ── Cursor throttle ───────────────────────────────────────────────────────────
+// Cursor moves fire on every pixel of mouse movement — at 60 fps that can be
+// thousands of WebSocket messages per second. We throttle to MAX 30 per second
+// (one per 33 ms) to dramatically reduce server load and network traffic
+// with no visible difference to the user.
+const CURSOR_THROTTLE_MS = 33; // ~30 fps
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -82,8 +86,12 @@ export default function Canvas({ boardId }) {
   const overlayRef   = useRef(null); // transparent overlay: shape previews + pointer events
   const containerRef = useRef(null); // outer clip container for zoom/pan
 
-  // Forward-declared socket ref so the undo callback (defined below) can close over it
+  // Forward-declared socket ref so undo/redo callbacks (defined below) can close over it
   const socketRef = useRef(null);
+
+  // Tracks the timestamp of the last cursor_move message sent.
+  // Used to throttle outgoing cursor broadcasts.
+  const lastCursorSendRef = useRef(0);
 
   // ── Room name ──────────────────────────────────────────────────────────────
   const [roomName, setRoomName] = useState("");
@@ -93,15 +101,25 @@ export default function Canvas({ boardId }) {
     document.title = roomName ? `${roomName} — Whiteboard` : "Whiteboard";
   }, [roomName]);
 
-  // ── Undo → server sync ────────────────────────────────────────────────────
+  // ── Undo / redo → server sync ─────────────────────────────────────────────
   /**
-   * After a local undo, tell the server to pop our last stroke from the room's
-   * stroke list. The server then broadcasts a full `init` to all clients so
-   * every canvas repaints from the updated authoritative state.
+   * handleUndoSync — after a local undo, tell the server to pop our last stroke.
+   * Server removes it from the room's stroke list, pushes it to our redo stack,
+   * then broadcasts a full init so all clients resync.
    */
   const handleUndoSync = () => {
     if (socketRef.current?.readyState === WebSocket.OPEN)
       socketRef.current.send(JSON.stringify({ type: MSG.UNDO_LAST, userId: USER_ID }));
+  };
+
+  /**
+   * handleRedoSync — after a local redo, tell the server to restore our last
+   * undone stroke. Server pops from our redo stack back into the stroke list,
+   * then broadcasts a full init so all clients resync.
+   */
+  const handleRedoSync = () => {
+    if (socketRef.current?.readyState === WebSocket.OPEN)
+      socketRef.current.send(JSON.stringify({ type: MSG.REDO_LAST, userId: USER_ID }));
   };
 
   // ── Drawing ────────────────────────────────────────────────────────────────
@@ -113,7 +131,11 @@ export default function Canvas({ boardId }) {
     undo, redo, canUndo, canRedo,
     color, setColor, size, setSize, tool, setTool,
     isShapeTool, isTextTool, isFillTool,
-  } = useDrawing(canvasRef, overlayRef, { userId: USER_ID, onUndo: handleUndoSync });
+  } = useDrawing(canvasRef, overlayRef, {
+    userId:  USER_ID,
+    onUndo:  handleUndoSync,
+    onRedo:  handleRedoSync, // wire redo sync so all clients repaint after redo
+  });
 
   // ── Cursors ────────────────────────────────────────────────────────────────
   const { cursors, updateCursor } = useCursor();
@@ -127,9 +149,8 @@ export default function Canvas({ boardId }) {
     useZoomPan(containerRef);
 
   // ── Text tool input ────────────────────────────────────────────────────────
-  // onCommit is called when the user presses Enter or clicks away
   const textInputHook = useTextInput(({ cx, cy, value }) => {
-    saveSnapshot(); // save before committing so the text can be undone
+    saveSnapshot(); // snapshot before commit so text can be undone
     commitText(cx, cy, value, socketRef);
   });
 
@@ -154,96 +175,75 @@ export default function Canvas({ boardId }) {
   // ── Socket message handler ─────────────────────────────────────────────────
   /**
    * handleSocketMessage — the single entry point for all incoming WebSocket messages.
-   * Each case maps to a MSG constant from constants.js.
-   *
-   * This function is intentionally NOT wrapped in useCallback.
-   * useSocket stores it in a ref (onMessageRef) and updates that ref
-   * synchronously each render, so it always calls the latest version.
+   * Each case maps to a MSG constant defined in constants.js.
+   * Not wrapped in useCallback — useSocket stores it in a ref and updates that
+   * ref synchronously each render, so it always calls the latest version.
    */
   function handleSocketMessage(data) {
     switch (data.type) {
-
       case MSG.INIT:
-        // Full board resync — happens on join and after any undo.
-        // Clear canvas first, then replay all stored strokes in order.
+        // Full board resync — happens on join, after undo, and after redo.
         clearCanvas();
         (data.strokes || []).forEach((s) => drawRemote(canvasRef, s));
-        initNotes(data.notes || []); // replace local notes with server's authoritative list
+        initNotes(data.notes || []);
         break;
-
       case MSG.DRAW:
-        // A single draw event from another user — replay it on our canvas
         drawRemote(canvasRef, data);
         break;
-
       case MSG.CURSOR_MOVE:
-        // Update the stored position for another user's cursor dot
         updateCursor(data.userId, data.x, data.y, data.username);
         break;
-
       case MSG.CLEAR_BOARD:
-        // Another user (or ourselves) cleared the board
         clearCanvas();
         break;
-
       case MSG.NOTE_CREATE:
       case MSG.NOTE_MOVE:
       case MSG.NOTE_UPDATE:
       case MSG.NOTE_DELETE:
-        // All note mutations funnel through applyRemoteNote
         applyRemoteNote(data);
         break;
-
       case MSG.ROOM_INFO:
-        // Server sends this once on join with the current room name
         setRoomName(data.name || "");
         break;
-
       case MSG.ROOM_RENAME:
-        // Another user (or ourselves) renamed the room
         setRoomName(data.name || "");
         break;
-
       case MSG.PRESENCE_UPDATE:
-        // Server sends this whenever someone joins or leaves the room
         applyPresenceUpdate(data);
         break;
-
       default:
         break;
     }
   }
 
-  // useSocket opens the WebSocket, sends "join", and routes incoming messages
-  // via handleSocketMessage. It also passes our identity to the server for presence.
+  // useSocket opens the WebSocket, sends "join" with our identity, and routes
+  // all incoming messages through handleSocketMessage via a ref.
   const _socketRef = useSocket(boardId, handleSocketMessage, {
     userId:   USER_ID,
     username,
     color:    USER_COLOR,
   });
 
-  // Mirror the socket ref so handleUndoSync and any callback can always see the live socket
+  // Mirror into the forward-declared ref so undo/redo callbacks always see the live socket
   socketRef.current = _socketRef.current;
 
-  /** send — convenience wrapper to JSON-stringify and send if socket is open. */
+  /** send — convenience wrapper: JSON-stringify and send if socket is open. */
   const send = (data) => {
     if (_socketRef.current?.readyState === WebSocket.OPEN)
       _socketRef.current.send(JSON.stringify(data));
   };
 
-  /** handleRename — called by RoomTitle when the user submits a new name. */
+  /** handleRename — called by RoomTitle when the user submits a new board name. */
   const handleRename = (name) => send({ type: MSG.ROOM_RENAME, name });
 
   // ── Pointer event routing ─────────────────────────────────────────────────
   /**
    * handlePointerDown — routes the pointer-down event to the correct tool handler.
-   * Order matters: pan check first, then tool-specific logic.
+   * Pan is checked first since it can be activated regardless of the active tool.
    */
   const handlePointerDown = (e) => {
-    // Space+drag or middle-mouse → pan (handled entirely by useZoomPan)
-    if (startPanIfNeeded(e)) return;
+    if (startPanIfNeeded(e)) return; // space+drag or middle-mouse → pan
 
-    // Convert screen coords to canvas pixel coords
     const { x, y } = getCanvasCoords(e, canvasRef.current);
 
     if (isTextTool) {
@@ -252,58 +252,60 @@ export default function Canvas({ boardId }) {
       return;
     }
     if (isFillTool) {
-      // Fill tool: flood-fill from click point (snapshot first for undo)
+      // Fill: snapshot first so the fill can be undone, then flood-fill
       saveSnapshot();
       handleFill(x, y, _socketRef);
       return;
     }
     if (tool === "note") {
-      // Note tool: create a new sticky note at click position
-      createNote(x, y, _socketRef);
+      // Note tool: create a sticky note, passing userId so it's stored on the note
+      createNote(x, y, _socketRef, USER_ID);
       return;
     }
 
-    // All other tools: save a snapshot before drawing begins (enables undo)
+    // All other tools (pen, eraser, shapes): snapshot before drawing for undo support
     saveSnapshot();
-    if (isShapeTool) handleShapeStart(e); // record drag origin for shapes
-    // Pen/eraser: first move event will begin drawing (handleMouseMove)
+    if (isShapeTool) handleShapeStart(e); // record drag origin for shape tools
   };
 
   /**
    * handlePointerMove — routes move events to pan or draw handlers.
-   * Also broadcasts cursor position so other clients see our cursor.
+   * Also broadcasts cursor position, throttled to ~30 fps to reduce server load.
    */
   const handlePointerMove = (e) => {
-    // If panning, let useZoomPan handle it and skip everything else
-    if (continuePanIfActive(e)) return;
+    if (continuePanIfActive(e)) return; // currently panning — skip drawing
     if (!canvasRef.current) return;
 
     const { x, y } = getCanvasCoords(e, canvasRef.current);
 
-    // Broadcast our cursor position to other clients (regardless of tool)
-    send({ type: MSG.CURSOR_MOVE, x, y, username });
+    // Throttle cursor broadcasts: only send if enough time has passed since the last one.
+    // Without throttling this fires on every pixel of mouse movement (hundreds/sec).
+    const now = Date.now();
+    if (now - lastCursorSendRef.current >= CURSOR_THROTTLE_MS) {
+      send({ type: MSG.CURSOR_MOVE, x, y, username });
+      lastCursorSendRef.current = now; // update the timestamp of the last send
+    }
 
-    // Draw for pen/eraser/shapes — text, fill, and notes have no move behavior
+    // Forward to drawing logic for tools that have move behavior
     if (!isTextTool && !isFillTool && tool !== "note") {
       drawMouseMove(e, _socketRef);
     }
   };
 
   /**
-   * handlePointerUp — finalize shape drawings and end pan.
+   * handlePointerUp — finalize shape drawings and end any active pan.
    */
   const handlePointerUp = (e) => {
-    endPan(); // always call — harmless if not panning
-    if (isShapeTool) handleShapeEnd(e, _socketRef); // commit shape to canvas
+    endPan(); // always call — harmless if not currently panning
+    if (isShapeTool) handleShapeEnd(e, _socketRef); // commit shape to main canvas
   };
 
   // ── Cursor style ───────────────────────────────────────────────────────────
-  // The overlay canvas cursor changes to give visual feedback for the active tool
-  const cursorStyle = isSpaceDown() ? "grab"       // space = pan mode
-    : isFillTool      ? "cell"                     // fill = crosshair+dot
-    : isTextTool      ? "text"                     // text = I-beam
-    : tool === "note" ? "copy"                     // note = copy/add cursor
-    : "crosshair";                                 // pen/eraser/shapes = crosshair
+  const cursorStyle = isSpaceDown() ? "grab"
+    : isFillTool      ? "cell"
+    : isTextTool      ? "text"
+    : tool === "note" ? "copy"
+    : "crosshair";
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
@@ -312,7 +314,7 @@ export default function Canvas({ boardId }) {
       {/* Fixed toolbar — always visible above the board */}
       <Toolbar
         tool={tool}
-        setTool={(t) => { textInputHook.close(); setTool(t); }} // close text input on tool switch
+        setTool={(t) => { textInputHook.close(); setTool(t); }}
         color={color} setColor={setColor}
         size={size}   setSize={setSize}
         clearBoard={() => { saveSnapshot(); clearCanvas(); send({ type: MSG.CLEAR_BOARD }); }}
@@ -322,26 +324,25 @@ export default function Canvas({ boardId }) {
         undo={undo} redo={redo} canUndo={canUndo} canRedo={canRedo}
       />
 
-      {/* Editable room name — sits below the toolbar */}
+      {/* Editable room name — centered below the toolbar */}
       <RoomTitle name={roomName} onChange={handleRename} />
 
       {/* Connected user avatars — top-right corner */}
       <PresenceList users={presenceUsers} myUserId={USER_ID} />
 
-      {/* Clipping viewport — overflow hidden prevents content escaping during pan/zoom */}
+      {/* Clipping viewport — overflow:hidden prevents content escaping during zoom/pan */}
       <div ref={containerRef} style={containerStyle}>
 
-        {/* Single transform target — CSS translate+scale applied here moves everything inside */}
+        {/* Single CSS transform target — translate + scale applied here moves everything */}
         <div style={{
           position: "absolute", width: "100%", height: "100%",
           transform: `translate(${zoom.panX}px,${zoom.panY}px) scale(${zoom.scale})`,
-          transformOrigin: "0 0", // zoom from top-left so coordinates are predictable
+          transformOrigin: "0 0",
         }}>
-
           {/* Main canvas — all committed drawing lives here */}
           <canvas ref={canvasRef} width={CANVAS_W} height={CANVAS_H} style={mainCanvasStyle} />
 
-          {/* Overlay canvas — transparent; receives all pointer events and shows shape previews */}
+          {/* Overlay canvas — transparent; receives pointer events and shows shape previews */}
           <canvas
             ref={overlayRef}
             width={CANVAS_W} height={CANVAS_H}
@@ -362,7 +363,7 @@ export default function Canvas({ boardId }) {
             onBlur={textInputHook.commit}
           />
 
-          {/* Sticky notes — positioned as % of canvas size so they stay with the drawing */}
+          {/* Sticky notes — positioned as % of canvas size so they scale with zoom */}
           {notes.map((note) => (
             <StickyNote
               key={note.id}
@@ -378,12 +379,10 @@ export default function Canvas({ boardId }) {
 
           {/* Remote cursors — other users' positions as colored dots with name labels */}
           <RemoteCursors cursors={cursors} scale={zoom.scale} />
-
         </div>
 
         {/* Zoom indicator — only shown when zoom !== 100% */}
         <ZoomBadge scale={zoom.scale} onReset={resetZoom} />
-
       </div>
     </div>
   );
@@ -391,24 +390,25 @@ export default function Canvas({ boardId }) {
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
-// Outer wrapper — centers the board below the fixed toolbar + title
+// Outer wrapper — centers the board horizontally; marginTop makes room for
+// the fixed toolbar (≈50px) + RoomTitle (≈30px) + some breathing room
 const outerStyle = { display: "flex", justifyContent: "center", marginTop: 100 };
 
-// Clipping container — defines the visible viewport for the board
+// Clipping container — the visible viewport; overflow:hidden clips pan/zoom content
 const containerStyle = {
   width: "95vw", height: "78vh",
   border: "2px solid black",
-  background: "#f0f0f0", // grey shows outside the white canvas when zoomed out
+  background: "#f0f0f0", // grey visible outside the white canvas when zoomed out
   position: "relative",
-  overflow: "hidden",    // clips panned/zoomed content at the border
+  overflow: "hidden",
 };
 
-// Shared base for both canvas elements
+// Base styles shared by both canvas elements
 const canvasBase = { width: "100%", height: "100%", position: "absolute", top: 0, left: 0 };
 
-// Main canvas — white background provides the drawing surface
+// Main canvas — white background provides the actual drawing surface
 const mainCanvasStyle = { ...canvasBase, background: "white", zIndex: 1 };
 
-// Overlay canvas — transparent so the main canvas shows through;
-// sits above main (zIndex 2) to receive all pointer events
+// Overlay canvas — transparent so main canvas shows through;
+// sits above (zIndex 2) to receive all pointer events
 const overlayStyle = { ...canvasBase, background: "transparent", zIndex: 2 };

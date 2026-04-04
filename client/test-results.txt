@@ -1,0 +1,42 @@
+
+[1m[46m RUN [49m[22m [36mv4.1.2 [39m[90mC:/Users/Winston/vsc/collab-whiteboard/client[39m
+
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mctx2d[2m > [22mreturns a non-null 2D context with standard drawing methods[32m 3[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mctx2d[2m > [22mreturns the same context instance on repeated calls for the same canvas[32m 1[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mctx2d[2m > [22mdoes not throw even with the willReadFrequently attribute set[32m 1[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mdrawShape[2m > [22mcalls strokeRect with correct x/y/width/height for the rect tool[32m 2[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mdrawShape[2m > [22mcalls ellipse centered between drag points for the circle tool[32m 1[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mdrawShape[2m > [22mcalls moveTo + lineTo + stroke for the line tool[32m 1[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mdrawShape[2m > [22msets strokeStyle and lineWidth to the provided values during drawing[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mdrawShape[2m > [22mcalls save() before and restore() after drawing[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mdrawShape[2m > [22mdoes not throw for an unknown tool type[32m 1[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mcommitTextToCanvas[2m > [22mcalls fillText once for single-line text[32m 1[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mcommitTextToCanvas[2m > [22mcalls fillText once per line for multi-line text[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mcommitTextToCanvas[2m > [22mdoes not throw when text is empty or whitespace-only[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mcommitTextToCanvas[2m > [22mdoes not throw when canvas is null[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mcommitTextToCanvas[2m > [22msets fillStyle to the provided color during drawing[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mcommitTextToCanvas[2m > [22mapplies a font size of 16px when size is 2 (max(12, 2ﾃ・)=16)[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mcommitTextToCanvas[2m > [22menforces a minimum font size of 12px when size is 1 (max(12, 1ﾃ・)=12)[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mfloodFill[2m > [22mdoes not throw on a normal canvas with valid coordinates[32m 1[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mfloodFill[2m > [22mdoes not throw when canvas is null[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mfloodFill[2m > [22mdoes not throw when coordinates are out of canvas bounds[32m 1[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mfloodFill[2m > [22mcalls putImageData after completing the fill[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mfloodFill[2m > [22mcalls getImageData to read pixel data before filling[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mapplyDrawEvent[2m > [22mdoes not throw for a pen stroke event[32m 1[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mapplyDrawEvent[2m > [22mdoes not throw for an eraser event[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mapplyDrawEvent[2m > [22mdoes not throw for a rect shape event[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mapplyDrawEvent[2m > [22mdoes not throw for a circle shape event[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mapplyDrawEvent[2m > [22mdoes not throw for a line shape event[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mapplyDrawEvent[2m > [22mdoes not throw for a text event[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mapplyDrawEvent[2m > [22mdoes not throw for a fill event[32m 1[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mapplyDrawEvent[2m > [22mdoes not throw when canvas is null[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mapplyDrawEvent[2m > [22mrestores globalCompositeOperation to source-over after the eraser[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mapplyDrawEvent[2m > [22mdoes not throw for unknown tool types[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mapplyDrawEvent[2m > [22mcalls stroke() when drawing a pen line[32m 0[2mms[22m[39m
+ [32m笨・[39m src/utils/drawingUtils.test.js[2m > [22mapplyDrawEvent[2m > [22msets the correct strokeStyle for pen events during drawing[32m 0[2mms[22m[39m
+
+[2m Test Files [22m [1m[32m1 passed[39m[22m[90m (1)[39m
+[2m      Tests [22m [1m[32m33 passed[39m[22m[90m (33)[39m
+[2m   Start at [22m 11:14:09
+[2m   Duration [22m 744ms[2m (transform 49ms, setup 49ms, import 23ms, tests 21ms, environment 556ms)[22m
+

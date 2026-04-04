@@ -14,7 +14,7 @@ export const CANVAS_H = 800;
 
 // ── Tool definitions ─────────────────────────────────────────────────────────
 // Each entry drives one toolbar button.
-// id   → the string stored in tool state and sent in draw events
+// id    → the string stored in tool state and sent in draw events
 // label → emoji / glyph shown on the button
 // title → tooltip text on hover
 export const TOOLS = [
@@ -45,9 +45,9 @@ export const TOOLS = [
 export const SHAPE_TOOLS = new Set(["rect", "circle", "line"]);
 
 // ── Zoom limits ──────────────────────────────────────────────────────────────
-export const ZOOM_MIN = 0.15; // 15% — minimum zoom level
+export const ZOOM_MIN = 0.15; // 15%  — minimum zoom level
 export const ZOOM_MAX = 8; // 800% — maximum zoom level
-export const ZOOM_STEP = 1.1; // multiply/divide scale by this per wheel tick
+export const ZOOM_STEP = 1.1; // multiply / divide scale by this per wheel tick
 
 // ── Undo history ─────────────────────────────────────────────────────────────
 // Max number of ImageData snapshots kept in memory per client.
@@ -75,19 +75,20 @@ export const PRESENCE_COLORS = [
 
 // ── WebSocket message types ──────────────────────────────────────────────────
 // All socket messages have a `type` field matching one of these strings.
-// Keeping them in one object prevents typos and makes refactoring trivial.
+// Centralising them here prevents typos and makes rename-refactoring trivial.
 export const MSG = {
   JOIN: "join", // client → server: enter a room
-  INIT: "init", // server → client: full board state on join or after undo
-  DRAW: "draw", // both directions: a single draw event (stroke segment, shape, text, fill)
-  CLEAR_BOARD: "clear_board", // both directions: wipe all strokes
-  CURSOR_MOVE: "cursor_move", // client → server → others: live cursor position
-  NOTE_CREATE: "note_create", // both directions: new sticky note
-  NOTE_MOVE: "note_move", // both directions: note repositioned
-  NOTE_UPDATE: "note_update", // both directions: note text changed
-  NOTE_DELETE: "note_delete", // both directions: note removed
-  UNDO_LAST: "undo_last", // client → server: remove sender's last stroke, rebroadcast init
-  ROOM_RENAME: "room_rename", // both directions: room name changed
+  INIT: "init", // server → client: full board state (on join or after undo/redo)
+  DRAW: "draw", // both: a single draw event (stroke, shape, text, fill)
+  CLEAR_BOARD: "clear_board", // both: wipe all strokes
+  CURSOR_MOVE: "cursor_move", // client → server → others: live cursor position (throttled)
+  NOTE_CREATE: "note_create", // both: new sticky note (includes createdBy userId)
+  NOTE_MOVE: "note_move", // both: note repositioned
+  NOTE_UPDATE: "note_update", // both: note text changed
+  NOTE_DELETE: "note_delete", // both: note removed
+  UNDO_LAST: "undo_last", // client → server: pop sender's last stroke to their redo stack
+  REDO_LAST: "redo_last", // client → server: restore sender's last undone stroke
+  ROOM_RENAME: "room_rename", // both: room display name changed
   ROOM_INFO: "room_info", // server → client (on join): current room name
-  PRESENCE_UPDATE: "presence_update", // server → all clients: current list of connected users
+  PRESENCE_UPDATE: "presence_update", // server → all clients: current connected user list
 };
